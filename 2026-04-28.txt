@@ -7,3 +7,26 @@
 好消息是API返回的数据里面包括了订单发生退款退货时的退款金额，坏消息是实际上退款操作并不和订单强绑定。救不了一点，只能分开算。
 
 今天还是没搞定，数了一下差不多还有四个返回实体需要处理，应该能赶在销售总回来之前搞定，要是明天搞不定的话之后就会很被动了。
+
+```mermaid
+    订单列表_POST ||--o{ 订单详情_POST : "orderCode"
+    订单列表_POST ||--o{ 订单备注_POST : "orderCode"
+    仓库列表_GET ||--o{ 订单列表_POST : "仓库列表_GET.id = 订单列表.warehouseId"
+    员工列表_POST ||--o{ 订单列表_POST : "员工列表_POST.id = 订单列表.salesmanId"
+    客户列表_POST}o--||客户分类列表_GET : "客户列表_POST.customerCategoryId = 客户分类列表_GET.id"
+    拜访记录列表_POST ||--o{ 客户列表_POST : "拜访记录列表_POST.customerId = 客户列表_GET.id"
+    组织（店铺）信息_GET ||--o{ 仓库列表_GET : "组织（店铺）信息_GET.warehouseId = 仓库列表_GET.id"
+    订单详情_POST ||--o{ 商品单位列表_GET : "订单详情_POST.baseUnitId = 商品单位列表_GET.id"
+    订单详情_POST ||--o{ 商品单位列表_GET : "订单详情_POST.auxUnitId = 商品单位列表_GET.id"
+    商品列表_GET ||--o{ 商品分类列表_GET : "商品列表_GET.categoryId = 商品分类列表_GET.id"
+    商品列表_GET ||--o{ 商品品牌列表_GET : "商品列表_GET.brandId = 商品品牌列表_GET.id"
+    客户列表_POST }o--|| 价格等级_GET_GET : "客户列表_POST.customerCategoryId = 价格等级_GET.id"
+    拜访记录列表_POST ||--o{ 员工列表_POST : "拜访记录列表_POST.salesId = 员工列表_POST.id"
+    订单列表_POST }o--|| 客户列表_POST : "订单列表_POST.buyer_code = 客户列表_POST.code"
+    退单列表_POST }o--|| 客户列表_POST : "退单列表_POST.buyer_code  = 客户列表_POST.code"
+    退单列表_POST }o--|| 订单列表_POST : "orderCode
+        该映射非业务强制，实际无意义"
+    退单详情_POST }o--|| 商品列表_GET : "退单详情_POST.productCode = 商品列表_GET.code"
+    退单详情_POST }o--|| 订单详情_POST : "orderCode
+        该映射非业务强制，实际无意义"
+```
