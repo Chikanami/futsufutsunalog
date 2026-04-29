@@ -1,0 +1,847 @@
+4月29号（周三）
+
+除了一些暂时可以放放的基本上都给理出来了，看得出来他们的ERP也是用这些接口运行的，虽然不少东西没看明白是怎么在ERP里的表里面凑一块儿的，但是肯定是能关联起来的，只是一时半会儿没搞明白，比如一个外键连接着两外两个表的主键这种。
+算上空行和代码块标识符刚好830行，感觉还行。
+
+今天终于看到了之前猜到就有但是没遇到的东西：没有写备注说明的字段名。
+woc怎么有大牛逼用“count”作为计数数量的字段名哦，真的是在计数.png
+同一个东西有的地方叫id有的地方叫code，素质真差。
+不是很理解他们为什么要在表里面单独拉几个字段出来用布尔值设置条目中部分字段的访问/编辑权限，是为了兼容他们其他客户自己的系统嘛？
+销售退货入库表里面有仓库编码、仓库id和仓库名称，采购入库表里面只有仓库id和仓库名称。牛逼。
+采购入库、销售出库、采购退货出库和销售退货入库的响应头一模一样，他们怕不是直接把这四个一个表里然后在搓API的时候分开了。
+
+把“商品单位”改成“商品计量单位”了，“单位”这个词歧义实在有点大。
+看着这堆同一对实体之间有好几条线就知道这玩意儿有多要命了，更要命的是这些都是业务上实际存在的。
+采购不走ERP，采购单只是做记录用的，可以先放放，有出入库就行。
+财务也往后面稍稍，先搞定业务的说。
+
+```mermaid
+erDiagram
+    区域列表_GET{
+        bool defaultFlag  "默认区域标志"
+        int64 id PK "数据ID"
+        bool leafFlag "叶子结点区域标志"
+        int32 level "区域层数"
+        string name "区域名"
+        int64 parentId "上级区域"
+    }
+
+    仓库列表_GET{
+        string code "仓库编码"
+        int64 id PK "仓库ID"
+        string name "仓库名称"
+        int32 salesBanned "是否禁售仓库：1:是，0:否"
+        int32 status "仓库状态 1：启用，0：禁用"
+        int32 type "仓库类型 1:成品仓, 2:退货仓, 3:不良品仓, 4:加工仓"
+    }
+
+    员工列表_POST{
+        string createTime "员工创建时间 示例:2019-08-24T14:15:22.123Z"
+        string departmentId FK "部门id"
+        string departmentName "部门"
+        string email "邮箱"
+        string employeeNumber "工号"
+        int64 id PK "ID"
+        string mobile "手机号"
+        string name "名称"
+        string position "职位"
+        int32 status "状态 1启用 0禁用"
+        string userName "用户名"
+        string modifyTime "员工修改时间 示例:1767075720000"
+    }
+
+    客户分类列表_GET{
+        bool defaultFlag "是否默认（true：默认，false：非默认）"
+        int64 id PK "id"
+        string name "客户分类名称"
+    }
+
+    商品计量单位列表_GET{
+        int64 id PK "单位id"
+        string name "单位名称"
+    }
+
+    商品分类列表_GET{
+        int64 id PK "id"
+        string name "分类名称"
+        int64 parentId "父类Id，父类id为0时表示没有上级分类"
+    }
+
+    商品品牌列表_GET{
+        int64 id PK "id"
+        string name "品牌名称"
+    }
+
+    商品展示分类列表_GET_未启用实体{
+        int64 id PK "id"
+        string name"展示分类名称"
+        int64 parentId "父类Id，父类id为0时表示没有上级分类"
+    }
+
+    商品授权方案_GET_未启用实体{
+        int64 id PK "id"
+        string name "名称"
+    }
+
+    价格等级_GET{
+        int64 id PK "价格等级id"
+        int32 levelIndex "价格等级索引序"
+        string name "价格等级名称"
+    }
+
+    组织（店铺）信息_GET{
+        string code "编码"
+        int64 id PK "店铺id"
+        object irObjects "元数据"
+        string string "name"
+        int32 status "状态 1开启 0禁用"
+        int64 warehouseId "默认发货仓库id"
+        string warehouseName "默认发货仓库名称"
+    }
+
+    客户列表_POST{
+        string address  "详细地址"
+        string areaAddress  "省市区的结合组成"
+        string billDay  "结算周期"
+        string code PK,UK "编码"
+        string contactName "联系人"
+        string createTime "组织创建时间"
+        int64 customerCategoryId FK "客户分类id"
+        string customerCategoryName "客户分类名称"
+        int64 defaultWarehouseID FK "默认发货仓库ID"
+        string defaultWarehouseName "默认发货仓库名称"
+        string defaultWarehouseNumber "默认发货仓库编号"
+        string deliveryAddress "收货联系地址"
+        string deliveryAddressDetail "收货联系详细地址"
+        string deliveryName "收货联系人"
+        string deliveryPhone "收货联系人电话"
+        string details "详细地址"
+        string franchiseTime "加盟时间"
+        int64 id UK "id"
+        number  limitQuota "信用额度"
+        string logisticsCode "物流编码"
+        string memo "备注"
+        string modifyTime "组织修改时间"
+        string name "名称"
+        string payPeriodTypeName "结算模式名称（账期类型名称）"
+        string phoneNum "联系电话"
+        string productAuthorizationName "商品授权方案名称"
+        int64 productAuthorizationId FK "商品授权方案ID"
+        int32 referrerId "推荐人id，员工id或客户id"
+        string referrerName "推荐人名称"
+        string referrerType "推荐人类型：0.无推荐人 1.员工 2.客户"
+        int64 regionId FK "区域id"
+        string regionName "所属区域名"
+        string repaymentDay "付款日/付款期限"
+        int64 routeId FK "路线id"
+        string routeName "路线名称"
+        string salesName "业务员姓名"
+        int32 sourceType "客户来源类型：1.手工创建 2.ERP同步 3.员工拉新(员工葵花码) 4.客户推荐(小程序链接) 5.微信搜索 6.扫码注册(组织葵花码) 7.批量导入"
+        int32 status "状态 1开启 0禁用"
+        string userName "机构账号"
+        object  irObjects "自定义字段Key-Value键值对, key见自定义字段apiName"
+    }
+
+    拜访记录列表_POST{
+        string	cityName		"城市名称"	
+        string	createTime		"创建时间"	
+        string	creator		"创建人"	
+        int64	creatorId		"创建人id"	
+        string	customerCode		"客户编码"	
+        int64	customerId	FK	"客户id"	
+        string	customerName		"客户名称"	
+        string	details		"详细地址"	
+        string	districtName		"地区名称"	
+        bool	effective		"记录是否异常:true=正常，false=异常，默认正常"	
+        string	exceptionReason		"异常原因"	
+        int64	id	UK	"id"	
+        string	lastVisitTime		"上次拜访"	
+        double	latitude		"客户地址所处纬度"	
+        double	longitude		"客户地址所处经度"	
+        string	provinceName		"省份名称"	
+        integer	salesId	FK	"业务员id"
+        string	salesName		"业务员名称"	
+        string	signAddress		"签到详细地址"	
+        number 	signDistance		"签到点客户距离"	
+        string	signLocation		"签到经纬度"	
+        string	signOutAddress		"签退详细地址"	
+        number	signOutDistance		"签退点客户距离"	
+        string	signOutLocation		"签退经纬度"	
+        string	signOutTime		"签退时间"	
+        string	signTime		"签到时间"	
+        int32	status		"拜访记录状态:0=待拜访，1=拜访中，2=已完成"	
+        string	summary		"拜访记录纪要"	
+        int32	type		"拜访记录类型:0=线上拜访、1=实地拜访"	
+        string	visitDuration		"拜访时长"	
+        string	modifyTime		"修改时间"	
+    }
+
+    商品列表_GET{
+        int64 auxUnit_id "多单位id,必需"
+        number auxUnit_rate "换算率,必需"
+        string auxUnit_unitName "辅助单位名称,必需"
+        int64 brandId FK "品牌id"
+        int64 categoryId FK "类别Id"
+        string code PK "商品编码"
+        bool enableAuxUnit "SKU是否辅助计量单位"
+        bool enableMultiSpec "是否是多规格"
+        bool enableMultiUnit "是否是多单位"
+        bool enableMultiUnitSeparatePricing "商品是否启用多单位单独定价"
+        object irObjects "自定义字段Key-Value键值对, key见自定义字段apiName"
+        number minimum "起订量"
+        string multiUnitList_barcode "条形码(仅基础单位)"
+        number multiUnitList_basePrice "基准订货价"
+        bool multiUnitList_enableOrderUnit "是否是分销单位"
+        bool multiUnitList_enablePurchaseUnit "是否是采购单位"
+        int64 multiUnitList_id "多单位id,必须"
+        number multiUnitList_maximumPrice "最高限价"
+        number multiUnitList_minimumPrice "最低限价"
+        number multiUnitList_orderMultiple "订货倍数"
+        number multiUnitList_price1 "等级订货价1"
+        number multiUnitList_price10 "等级订货价10"
+        number multiUnitList_price2 "等级订货价2"
+        number multiUnitList_price3 "等级订货价3"
+        number multiUnitList_price4 "等级订货价4"
+        number multiUnitList_price5 "等级订货价5"
+        number multiUnitList_price6 "等级订货价6"
+        number multiUnitList_price7 "等级订货价7"
+        number multiUnitList_price8 "等级订货价8"
+        number multiUnitList_price9 "等级订货价9"
+        number multiUnitList_rate "换算率,必须"
+        number multiUnitList_supplierPrice "基准进货价"
+        string multiUnitList_unitName "单位名称"
+        string name "商品名称"
+        int64 onShelfTime "最后上架时间-时间戳(毫秒)"
+        string orderUnitName "分销默认单位"
+        string origin "商品产地"
+        string purchaseUnitName "采购默认单位"
+        int32 qualityGuaranteePeriod "商品保质期数值"
+        string qualityGuaranteePeriodUnit "SKU保质期时间单位, 1:天,2:月,3:年
+            枚举值:DAY,MONTH,YEAR"
+        int32 shelfStatus "上下架状态"
+        string shortCode "商品简称"
+        int64 skuId "sku id"
+        int32 sortNum "商品排序值，仅限输入整数，数值越大排序越考前。"
+        string spec "商品规格"
+        int64 spuId "spu id"
+        int32 status "商品状态"
+        number weight "重量"
+        integer type "商品类型，1：普通商品 2：套餐商品"
+    }
+
+    订单列表_POST{
+        int64 addressId "地址id"
+        int64 buyer_id FK "客户ID"
+        string buyer_code FK "客户编码"
+        string buyer_name "客户名称"
+        int64 cityId "收货地址-地级市区域id"
+        string contactName "收货联系人"
+        string contactPhone "联系电话"
+        int64 countryId "收货地址-国家级区域id"
+        number couponAmount "优惠券金额"
+        int64 createId "制单人id"
+        string createName "制单人姓名"
+        string createRole "创建订单的角色，用来判断是否代下单：SELLER: 卖方，BUYER：买方
+            枚举值: SELLER BUYER"
+        string createTime "创建时间"
+        string deliveryAddress "收货地址"
+        string deliveryDate "交货日期"
+        int32 deliveryMethodId "配送方式id"
+        string deliveryMethodName "配送方式名称"
+        int64 districtId "收货地址-县级区域id"
+        string deliveryDate "交货日期"
+        int32 deliveryMethodId "配送方式名称"
+        int64 districtId FK "收货地址-县级区域id"
+        string financeAuditTime "财务审核时间"
+        string financeAuditor "财务审核人"
+        int64 financeAuditorId "财务审核人id"
+        string freightPricingWay "运费计价方式CONFIRMED_AT_CREATE_ORDER: 下单时确定; CONFIRMED_AT_DELIVERY: 发货时确定; 默认CONFIRMED_AT_CREATE_ORDER
+            枚举值:CONFIRMED_AT_CREATE_ORDER,CONFIRMED_AT_DELIVERY"
+        int64 id "ID"
+        object irObjects "元数据信息"
+        bool isClose "订单是否关闭"
+        string modifyTime "修改时间"
+        string orderAuditTime "订单审核时间"
+        string orderAuditor "订单审核人"
+        int64 orderAuditorId "订单审核人id"
+        string  orderCode PK,UK "订单号"
+        number orderDiscountAmount "整单优惠金额(修改订单金额产生优惠)"
+        string orderStatus "订单状态: ORDER_AUDIT_PENDING:待订单审核 FINANCE_AUDIT_PENDING:待财务审核 AUDITED:已审核 FINISHED:已完成 CANCELLED:已作废 SUBMIT_PENDING:待提交 SUPERIOR_AUDIT_PENDING:待上级审核 SUPERIOR_AUDIT_PENDING:待调出审核
+            枚举值:ORDER_AUDIT_PENDING,FINANCE_AUDIT_PENDING,AUDITED,FINISHED,CANCELLED,SUBMIT_PENDING,SUPERIOR_AUDIT_PENDING"
+        string stockOutStatus "出库状态：NONE: 未出库 PART:部分出库 FULL：已出库
+            枚举值:NONE,未出库,PART,部分出库,FULL,已出库"
+        string deliveryStatus "发货状态：NONE: 待发货 PART:部分发货 FULL：已发货
+            枚举值:NONE,待发货,PART,部分发货,FULL,已发货"
+        number orderTotalAmount "订单金额"
+        number refundedAmount "订单已退金额"
+        number otherAmount "其它费用"
+        string paymentStatus "付款状态(UN_PAID:未付款 PART_PAID:部分付款 PAID:已付款)
+            枚举值:UN_PAID,PART_PAID,PAID"
+        number productDiscountAmount "商品优惠总额(商品的折扣额之和)"
+        number productTotalAmount "商品金额总计"
+        int64 provinceId "收货地址-省级行政区域id"
+        string sourceOrderCode "订单导入专用源单号"
+        number totalFreight "运费"
+        string signStatus "签收状态：NONE:未签收 PART:部分签收 FULL:已签收"
+        number warehouseId FK "下单时的发货仓库id"
+        string warehouseName "下单时的发货仓库名称"
+        integer salesmanId "订单业务员ID，为员工ID"
+        string  salesmanName "订单业务员名称，为员工名称（快照，下单时的员工名称）"
+    }
+
+    订单详情_POST{
+        number couponAmount "优惠券金额，分摊到商品后的金额"
+        string createTime "创建时间"
+        number discountAmount "折扣额"
+        int64 id "订单明细id"
+        object irObjects "元数据信息"
+        string modifyTime "修改时间"
+        string orderCode FK "订单号"
+        number originalPrice "原单价（下单单位对应的单价）"
+        string productCode FK "商品编码"
+        string productName"商品名称"
+        int64 productSku "sku id"
+        int64 productSpu "spu id"
+        number purchaseNumbers "下单单位数量，赠品就是赠品的数量"
+        string remark "备注"
+        number salePrice "单价"
+        number saleRate "折扣率（0~100）"
+        number subtotal "小计 = 单价(salePrice) * 数量(purchaseNumbers)"
+        number salePriceAfterFullDiscount "商品折后单价，分摊优惠券、积分及其他促销后的单价,必需"
+        number subtotalAfterFullDiscount "折后小计 = 商品折后单价(salePriceAfterFullDiscount) * 数量(purchaseNumbers),必需"
+        string type "订单商品类型: NORMAL: 普通商品，MANUAL_GIFT：手动添加的赠品，PROMOTION_GIFT：促销活动生成的赠品
+            枚举值:NORMAL,MANUAL_GIFT,PROMOTION_GIFT"
+        int64 unitId "下单单位id"
+        string unitName "下单单位名称"
+        number zfNumber "直发到供应商的数量（订货单位）"
+        number baseUnitId FK "基本单位ID"
+        string baseUnitName "基本单位名称"
+        number baseUnitNumbers "下单对应的最小单位数量"
+        number auxUnitId FK  "辅助计量单位的id，如果使用辅助单位要填写"
+        number auxUnitNumbers "辅助单位购买数量"
+        string auxUnitName "辅助单位名称"
+        number rate "下单单位与最小单位的换算比率"
+        number combinationProductUnitId "组合商品单位id,必需"
+        string combinationProductExt "组合商品明细，json格式，详见原始API技术文档,必需"
+        number orderDiscountAmount "整单优惠金额(修改订单金额产生优惠)"
+    }
+
+    订单备注_POST{
+        string content "备注内容"
+        string createTime "创建时间"
+        int64 id "ID"
+        string modifyTime "修改时间"
+        string orderCode FK "订单号"
+    }
+
+    退单列表_POST{
+        integer buyer_id "客户ID"
+        string buyer_code "客户编码"
+        string name "客户名称"
+        int64 createId "制单人id"
+        string createName "制单人姓名"
+        string createTime "创建时间"
+        int64 id UK "ID"
+        string modifyTime "修改时间"
+        string orderAuditTime "退单审核时间"
+        string orderAuditor "退单审核人"
+        int64 orderAuditorId "退单审核人id"
+        int64 orderCode UK,FK "订单号"
+        string orderStatus "退单状态：ORDER_AUDIT_PENDING: 待审核, RECEIPT_AUDIT_PENDING：待收货审核, AUDITED: 已审核, FINISHED: 已完成, SUBMIT_PENDING: 待提交, CANCELLED: 已作废
+            枚举值:ORDER_AUDIT_PENDING,RECEIPT_AUDIT_PENDING,AUDITED,FINISHED,SUBMIT_PENDING,CANCELLED"
+        number orderTotalAmount "退单金额"
+        string paymentStatus "退款状态 WAIT_PAY: 待支付, PAID: 已支付, PART_PAID: 部分支付
+            枚举值:,WAIT_PAY,PAID,PART_PAID"
+        string relatedCode FK "关联单据编码（按原单退货对应来源订单）"
+        string storageBillNum FK "出库单号,按出库单退货时有值"
+        integer salesmanId FK "退单业务员ID，为员工ID"
+        string salesmanName "退单业务员名称，为员工名称"
+
+    }
+
+    退单详情_POST{
+        string auditRemark "审核说明"
+        string createTime "创建时间"
+        number discountAmount "折扣额，商品优惠金额"
+        int64 id "订单商品id"
+        string modifyTime "修改时间"
+        string orderCode FK "订单号"
+        number originalPrice "原单价"
+        string productCode "商品编码"
+        string productName "商品名称"
+        int64 productSku "sku id"
+        int64 productSpu "spu id"
+        int64 reasonId "退单原因id"
+        string reasonName "退单原因名称"
+        string remark "备注"
+        number salePrice "单价"
+        number saleRate "折扣率(0~100)"
+        number subtotal "小计，单价(salePrice) * 数量(purchaseNumbers)"
+        string type "订单商品类型
+            枚举值:NORMAL,MANUAL_GIFT,PROMOTION_GIFT"
+        number rate "下单单位与最小单位的换算比率"
+        integer baseUnitId FK "基本单位id"
+        string baseUnitName "基本单位名称"
+        number baseUnitNumbers "下单对应的最小单位数量"
+        int64 unitId "下单单位id"
+        string unitName "下单单位名称"
+        number purchaseNumbers "下单单位数量，赠品就是赠品的数量"
+        integer auxUnitId "辅助单位id"
+        string auxUnitName "辅助单位名称"
+        number auxUnitNumbers "辅助单位的数量"
+        number orderStorageDetailId FK "退单入库记录明细id，按单退货才存在,必需"
+        number orderDetailId FK "原单商品(赠品)详情id，按单退货才存在,必需"
+    }
+
+    退单备注_POST{
+        string content "备注内容"
+        string createTime "创建时间"
+        int64 id PK "ID"
+        string modifyTime "修改时间"
+        string orderCode FK "退单编码"
+    }
+
+    采购入库单列表_GET{
+        integer approveTime "审核时间（毫秒时间戳）"
+        integer approverId "审核人ID"
+        string approverName "审核人姓名"
+        string billNum UK,PK "单据号，唯一标识"
+        integer createTime "创建时间（毫秒时间戳）"
+        integer modifyTime "修改时间（毫秒时间戳）"
+        string creator "制单人名称"
+        int64 creatorId "制单人ID"
+        string discardReason "作废原因"
+        object dispatchBill "OpenApi-发货单据信息,这个先放着，以后要用了再说"
+        int64 id "id"
+        string orderNum "触发出入库的业务订单号,采购不走ERP，本字段无用"
+        string relateBillNum "触发出入库的关联单号，如直发的入库单号"
+        string remark "备注"
+        int32 status "单据状态 -1.作废 1.已审核，采购不走ERP，录了采购单的都是有效的"
+        int64 supplierId FK "供应商Id"
+        string supplierName "供应商名称"
+        int64 warehouseId FK "入库仓库id"
+        string warehouseName "入库仓库名称"
+    }
+
+    采购入库单备注列表_GET{
+        integer billId "单据ID"
+        string billNum FK "单据号"
+        string content "备注内容"
+        string createTime "创建时间"
+        string creator "创建人名称"
+        int64 creatorId "创建人ID"
+        int64 id PK "主键id"
+        string modifyTime "修改时间"
+    }
+
+    采购入库单入库商品列表_GET{
+        number auxCount "辅助单位数量"
+        int64 auxUnitId FK "辅助单位id"
+        string auxUnitName "辅助单位名称"
+        string barCode "SKU主条码"
+        number baseCount "基础单位数量"
+        int64 baseUnitId "基础单位ID"
+        string baseUnitName "基础单位名"
+        int64 billId "单据ID，推测外键，暂未找到对应键，暂时推测是'采购入库单列表_GET.id'"
+        string billNum FK "单据号"
+        int64 brandId FK "品牌ID"
+        int64 categoryId FK "品类ID"
+        string code "SKU编码"
+        string comboProduct "套餐商品信息"
+        number costMoney "成本金额(成本价*基础单位数量)"
+        number costPrice "成本价"
+        bool costPriceAccessible
+        bool costPriceEditable
+        number count "单据执行单位数量"
+        string countStripZeros
+        int64 id "id"
+        string imgUrl "指向商品主图的URL"
+        int64 inventoryId "t_inventory的id"
+        object irObjects "元数据信息，目前会引用订单明细的元数据"
+        string name "SKU名称"
+        int64 orderDetailId FK "订单详情表的主键"
+        number orderMoney "订单金额"
+        bool orderMoneyAccessible 
+        bool orderMoneyEditable
+        number orderPrice "订单条目单价（按下单时候的单位）"
+        bool orderPriceAccessible
+        bool orderPriceEditable
+        string otherRemark "第三方备注"
+        number purchaseNumbers "数量：单纯用于订单明细排序，会用count进行值的填充"
+        string  remark "备注"
+        number salePrice "单价：单纯用于订单明细排序，会用orderPrice进行值的填充"
+        string shortCode "SKU简称"
+        int64 skuId "sku id"
+        int32 sortNum "排序值, 按客户下单时候的顺序"
+        string spec "规格描述 {规格名: 规格值, ...}"
+        string specValue "这个看起来是和上面那个成对儿的"
+        int64 spuId "spu id"
+        number subtotal "小计：单纯用于订单明细排序，会用orderMoney进行值的填充"
+        string tagId "标签ID数组"
+        int64 unitId "单据执行单位ID"
+        string unitName "单据执行单位名"
+        number unitRate "多单位换算比例"
+        number weightAmount "重量小计"
+        number weightCount "重量属性值"
+    }
+
+
+    销售退货入库单列表_GET{
+        integer approveTime "审核时间（毫秒时间戳）"
+        integer approverId "审核人ID"
+        string approverName "审核人姓名"
+        string billNum UK,PK "单据号，唯一标识"
+        integer createTime "创建时间（毫秒时间戳）"
+        integer modifyTime "修改时间（毫秒时间戳）"
+        string creator "制单人名称"
+        int64 creatorId "制单人ID"
+        string discardReason "作废原因"
+        int64 id "id"
+        string orderNum FK "触发出入库的业务订单号,暂未找到对应键，把数据导出来之后再看"
+        int64 sourceId "入库来源ID 可以是客户或者会员"
+        string sourceName "入库来源名称"
+        int32 status "单据状态 -1.作废 0.待审核 1.已审核"
+        string warehouseCode FK "入库仓库编码"
+        int64 warehouseId FK "入库仓库id"
+        string warehouseName "入库仓库名称"
+        int64 writeoffBillId "如果有冲销 填写冲销对应的单据的ID"
+        int32 writeoffStatus "冲销状态 0.正常单据 1.被冲销单 2.冲销单"
+
+    }
+
+    销售退货入库单备注列表_GET{
+        integer billId "单据ID"
+        string billNum FK "单据号"
+        string content "备注内容"
+        string createTime "创建时间"
+        string creator "创建人名称"
+        int64 creatorId "创建人ID"
+        int64 id PK "主键id"
+        string modifyTime "修改时间"
+    }
+
+    销售退货入库单入库商品列表_GET{
+        number auxCount "辅助单位数量"
+        int64 auxUnitId FK "辅助单位id"
+        string auxUnitName "辅助单位名称"
+        string barCode "SKU主条码"
+        number baseCount "基础单位数量"
+        int64 baseUnitId "基础单位ID"
+        string baseUnitName "基础单位名"
+        object batchContents "批次号信息"
+        string baseUnitName "基础单位名"
+        int64 billId "单据ID，推测外键，暂未找到对应键，暂时推测是'销售退货入库单列表_GET.id'"
+        string billNum FK "单据号"
+        int64 brandId FK "品牌ID"
+        int64 categoryId FK "品类ID"
+        string code "SKU编码"
+        string comboProduct "套餐商品信息"
+        number costMoney "成本金额(成本价*基础单位数量)"
+        number costPrice "成本价"
+        bool costPriceAccessible
+        bool costPriceEditable
+        number count "单据执行单位数量"
+        string countStripZeros
+        int64 id "id"
+        string imgUrl "指向商品主图的URL"
+        int64 inventoryId "t_inventory的id"
+        object irObjects "元数据信息，目前会引用订单明细的元数据"
+        string name "SKU名称"
+        int64 orderDetailId FK "订单详情表的主键"
+        number orderMoney "订单金额"
+        bool orderMoneyAccessible 
+        bool orderMoneyEditable
+        number orderPrice "订单条目单价（按下单时候的单位）"
+        bool orderPriceAccessible
+        bool orderPriceEditable
+        string otherRemark "第三方备注"
+        number purchaseNumbers "数量：单纯用于订单明细排序，会用count进行值的填充"
+        string  remark "备注"
+        number salePrice "单价：单纯用于订单明细排序，会用orderPrice进行值的填充"
+        string shortCode "SKU简称"
+        int64 skuId "sku id"
+        int32 sortNum "排序值, 按客户下单时候的顺序"
+        string spec "规格描述 {规格名: 规格值, ...}"
+        string specValue "这个看起来是和上面那个成对儿的"
+        int64 spuId "spu id"
+        number subtotal "小计：单纯用于订单明细排序，会用orderMoney进行值的填充"
+        string tagId "标签ID数组"
+        int64 unitId "单据执行单位ID"
+        string unitName "单据执行单位名"
+        number unitRate "多单位换算比例"
+        number weightAmount "重量小计"
+        number weightCount "重量属性值"
+    }
+
+    采购退货出库单列表_GET{
+        integer approveTime "审核时间（毫秒时间戳）"
+        integer approverId "审核人ID"
+        string approverName "审核人姓名"
+        string billNum UK,PK "单据号，唯一标识"
+        integer createTime "创建时间（毫秒时间戳）"
+        integer modifyTime "修改时间（毫秒时间戳）"
+        string creator "制单人名称"
+        int64 creatorId "制单人ID"
+        string discardReason "作废原因"
+        int64 id "id"
+        string orderNum "触发出入库的业务订单号,采购不走ERP，本字段无用"
+        string relateBillNum "触发出入库的关联单号，如直发的入库单号"
+        string remark "备注"
+        int32 status "单据状态 -1.作废 1.已审核，采购不走ERP，录了采购单的都是有效的"
+        int64 supplierId FK "供应商Id"
+        string supplierName "供应商名称"
+        int64 warehouseId FK "入库仓库id"
+        string warehouseName "入库仓库名称"
+    }
+
+    采购退货出库单备注列表_GET{
+        integer billId "单据ID"
+        string billNum FK "单据号"
+        string content "备注内容"
+        string createTime "创建时间"
+        string creator "创建人名称"
+        int64 creatorId "创建人ID"
+        int64 id PK "主键id"
+        string modifyTime "修改时间"
+    }
+
+    采购退货出库单入库商品列表_GET{
+        number auxCount "辅助单位数量"
+        int64 auxUnitId FK "辅助单位id"
+        string auxUnitName "辅助单位名称"
+        string barCode "SKU主条码"
+        number baseCount "基础单位数量"
+        int64 baseUnitId "基础单位ID"
+        string baseUnitName "基础单位名"
+        object batchContents "批次号信息"
+        string baseUnitName "基础单位名"
+        int64 billId "单据ID，推测外键，暂未找到对应键，暂时推测是'采购退货出库单列表_GET.id'"
+        string billNum FK "单据号"
+        int64 brandId FK "品牌ID"
+        int64 categoryId FK "品类ID"
+        string code "SKU编码"
+        string comboProduct "套餐商品信息"
+        number costMoney "成本金额(成本价*基础单位数量)"
+        number costPrice "成本价"
+        bool costPriceAccessible
+        bool costPriceEditable
+        number count "单据执行单位数量"
+        string countStripZeros
+        int64 id "id"
+        string imgUrl "指向商品主图的URL"
+        int64 inventoryId "t_inventory的id"
+        object irObjects "元数据信息，目前会引用订单明细的元数据"
+        string name "SKU名称"
+        int64 orderDetailId FK "订单详情表的主键"
+        number orderMoney "订单金额"
+        bool orderMoneyAccessible 
+        bool orderMoneyEditable
+        number orderPrice "订单条目单价（按下单时候的单位）"
+        bool orderPriceAccessible
+        bool orderPriceEditable
+        string otherRemark "第三方备注"
+        number purchaseNumbers "数量：单纯用于订单明细排序，会用count进行值的填充"
+        string  remark "备注"
+        number salePrice "单价：单纯用于订单明细排序，会用orderPrice进行值的填充"
+        string shortCode "SKU简称"
+        int64 skuId "sku id"
+        int32 sortNum "排序值, 按客户下单时候的顺序"
+        string spec "规格描述 {规格名: 规格值, ...}"
+        string specValue "这个看起来是和上面那个成对儿的"
+        int64 spuId "spu id"
+        number subtotal "小计：单纯用于订单明细排序，会用orderMoney进行值的填充"
+        string tagId "标签ID数组"
+        int64 unitId "单据执行单位ID"
+        string unitName "单据执行单位名"
+        number unitRate "多单位换算比例"
+        number weightAmount "重量小计"
+        number weightCount "重量属性值"
+    }
+
+    销售出库单列表_GET{
+        integer approveTime "审核时间（毫秒时间戳）"
+        integer approverId "审核人ID"
+        string approverName "审核人姓名"
+        string billNum UK,PK "出库单号，唯一标识"
+        integer createTime "创建时间（毫秒时间戳）"
+        integer modifyTime "修改时间（毫秒时间戳）"
+        string creator "制单人名称"
+        int64 creatorId "制单人ID"
+        string discardReason "作废原因"
+        object dispatchBill "OpenApi-发货单据信息,这个先放着，以后要用了再说"
+        bool dispatched "发货状态"
+        int64 id "出库单id,"
+        string orderNum FK "触发出入库的业务订单号,暂未找到对应键，把数据导出来之后再看"
+        string otherRemark "第三方备注"
+        string relateBillNum "触发出入库的关联单号，如直发的入库单号,暂未找到对应键，把数据导出来之后再看"
+        string remark "备注"
+        int32 status "单据状态 -1.作废 0.待审核 1.已审核"
+        int64 targetId "出库接收方Id"
+        string targetName "出库接收方名字"
+        int64 targetSalesId "出库接收方业务员id"
+        string targetSalesName "出库接收方业务员名称"
+        int32 type "出库单据类型"
+        int64 warehouseId "出库仓库id"
+        string warehouseName "出库仓库名称"
+        
+
+    }
+
+    销售出库单备注列表_GET{
+        integer billId "单据ID"
+        string billNum FK "单据号"
+        string content "备注内容"
+        string createTime "创建时间"
+        string creator "创建人名称"
+        int64 creatorId "创建人ID"
+        int64 id PK "主键id"
+        string modifyTime "修改时间"
+    }
+
+    销售出库单入库商品列表_GET{
+        number auxCount "辅助单位数量"
+        int64 auxUnitId FK "辅助单位id"
+        string auxUnitName "辅助单位名称"
+        string barCode "SKU主条码"
+        number baseCount "基础单位数量"
+        int64 baseUnitId "基础单位ID"
+        string baseUnitName "基础单位名"
+        object batchContents "批次号信息"
+        string baseUnitName "基础单位名"
+        int64 billId "单据ID，推测外键，暂未找到对应键，暂时推测是'销售出库单列表_GET.id'"
+        string billNum FK "单据号"
+        int64 brandId FK "品牌ID"
+        int64 categoryId FK "品类ID"
+        string code "SKU编码"
+        string comboProduct "套餐商品信息"
+        number costMoney "成本金额(成本价*基础单位数量)"
+        number costPrice "成本价"
+        bool costPriceAccessible
+        bool costPriceEditable
+        number count "单据执行单位数量"
+        string countStripZeros
+        int64 id "id"
+        string imgUrl "指向商品主图的URL"
+        int64 inventoryId "t_inventory的id"
+        object irObjects "元数据信息，目前会引用订单明细的元数据"
+        string name "SKU名称"
+        int64 orderDetailId FK "订单详情表的主键"
+        number orderMoney "订单金额"
+        bool orderMoneyAccessible 
+        bool orderMoneyEditable
+        number orderPrice "订单条目单价（按下单时候的单位）"
+        bool orderPriceAccessible
+        bool orderPriceEditable
+        string otherRemark "第三方备注"
+        number purchaseNumbers "数量：单纯用于订单明细排序，会用count进行值的填充"
+        string  remark "备注"
+        number salePrice "单价：单纯用于订单明细排序，会用orderPrice进行值的填充"
+        string shortCode "SKU简称"
+        int64 skuId "sku id"
+        int32 sortNum "排序值, 按客户下单时候的顺序"
+        string spec "规格描述 {规格名: 规格值, ...}"
+        string specValue "这个看起来是和上面那个成对儿的"
+        int64 spuId "spu id"
+        number subtotal "小计：单纯用于订单明细排序，会用orderMoney进行值的填充"
+        string tagId "标签ID数组"
+        int64 unitId "单据执行单位ID"
+        string unitName "单据执行单位名"
+        number unitRate "多单位换算比例"
+        number weightAmount "重量小计"
+        number weightCount "重量属性值"
+    }
+
+    供应商列表_POST{
+        string address "供应商地址"
+        int64 cityId "市id"
+        string cityName "市名称"
+        string code "供应商编码"
+        string contact "联系人"
+        integer createTime "创建时间，毫秒时间戳"
+        integer modifyTime "修改时间，毫秒时间戳"
+        int64 districtId FK "区域id"
+        string districtName "区域名称"
+        string email "电子邮箱"
+        int64 id PK "供应商id"
+        string  mobile "联系电话"
+        string name "供应商名称"
+        int64 provinceId "省id"
+        string provinceName "省名称"
+        string qqNumber "QQ号"
+        string remark "备注"
+        int32 status "供应商状态 0 禁用 1 启用"
+        int32 type "供应商类型 1 购销"
+        string userName "用户名"
+        bool userStatus "供货商账号状态"
+        string wechatNumber "微信号"
+    }
+
+    订单列表_POST ||--o{ 订单详情_POST : "orderCode"
+    订单列表_POST ||--o{ 订单备注_POST : "orderCode"
+    仓库列表_GET ||--o{ 订单列表_POST : "仓库列表_GET.id = 订单列表.warehouseId"
+    员工列表_POST ||--o{ 订单列表_POST : "员工列表_POST.id = 订单列表.salesmanId"
+    客户列表_POST }o--||客户分类列表_GET : "客户列表_POST.customerCategoryId = 客户分类列表_GET.id"
+    拜访记录列表_POST }o--|| 客户列表_POST : "拜访记录列表_POST.customerId = 客户列表_GET.id"
+    组织（店铺）信息_GET }o--|| 仓库列表_GET : "组织（店铺）信息_GET.warehouseId = 仓库列表_GET.id"
+    订单详情_POST }o--|| 商品计量单位列表_GET : "订单详情_POST.baseUnitId = 商品计量单位列表_GET.id"
+    订单详情_POST }o--|| 商品计量单位列表_GET : "订单详情_POST.auxUnitId = 商品计量单位列表_GET.id"
+    商品列表_GET }o--|| 商品分类列表_GET : "商品列表_GET.categoryId = 商品分类列表_GET.id"
+    商品列表_GET }o--|| 商品品牌列表_GET : "商品列表_GET.brandId = 商品品牌列表_GET.id"
+    客户列表_POST }o--|| 价格等级_GET_GET : "客户列表_POST.customerCategoryId = 价格等级_GET.id"
+    拜访记录列表_POST }o--|| 员工列表_POST : "拜访记录列表_POST.salesId = 员工列表_POST.id"
+    订单列表_POST }o--|| 客户列表_POST : "订单列表_POST.buyer_code = 客户列表_POST.code"
+    退单列表_POST }o--|| 客户列表_POST : "退单列表_POST.buyer_code  = 客户列表_POST.code"
+    退单列表_POST }o--|| 订单列表_POST : "orderCode
+        该映射非业务强制，实际无意义"
+    退单详情_POST }o--|| 商品列表_GET : "退单详情_POST.productCode = 商品列表_GET.code"
+    退单详情_POST }o--|| 订单详情_POST : "orderCode
+        该映射非业务强制，实际无意义"
+    退单详情_POST }o--|| 商品计量单位列表_GET : "退单详情_POST.baseUnitId = 商品计量单位列表_GET.id"
+    退单详情_POST }o--|| 商品计量单位列表_GET : "退单详情_POST.UnitId = 商品计量单位列表_GET.id"
+    退单详情_POST }o--|| 商品计量单位列表_GET : "退单详情_POST.auxUnitId = 商品计量单位列表_GET.id"
+     单备注_POST }o--|| 订单列表_POST : "orderCode"
+    退单列表_POST }o--|| 销售出库单列表_GET : "退单列表_POST.storageBillNum = 销售出库单列表_GET.billNum"
+    退单详情_POST }o--|| 订单详情_POST : "退单详情_POST.orderDetailId = 订单详情_POST.id"
+
+    采购入库单列表_GET }o--|| 员工列表_POST : "采购入库单列表_GET.salesmanId = 员工列表_POST.id"
+    采购入库单备注列表_GET }o--|| 采购入库单列表_GET : "billNum"
+    采购入库单入库商品列表_GET }o--|| 商品计量单位列表_GET : "采购入库单入库商品列表_GET.auxUnitId = 商品计量单位列表_GET.id"
+    采购入库单入库商品列表_GET }o--|| 商品计量单位列表_GET : "采购入库单入库商品列表_GET.baseUnitId = 商品计量单位列表_GET.id"
+    采购入库单入库商品列表_GET }o--|| 采购入库单列表_GET : "billNum"
+    采购入库单入库商品列表_GET }o--|| 商品分类列表_GET : "采购入库单入库商品列表_GET.categoryId = 商品分类列表_GET.id"
+    采购入库单入库商品列表_GET }o--|| 商品品牌列表_GET : "采购入库单入库商品列表_GET.brandId = 商品品牌列表_GET.id"
+    采购入库单入库商品列表_GET }o--|| 订单详情_POST : "采购入库单入库商品列表_GET.orderDetailId = 订单详情_POST.id"
+    采购入库单列表_GET }o--|| 仓库列表_GET : "采购入库单列表_GET.warehouseId = 仓库列表_GET.id"
+
+    销售退货入库单备注列表_GET }o--|| 销售退货入库单列表_GET : "billNum"
+    销售退货入库单入库商品列表_GET }o--|| 商品计量单位列表_GET : "销售退货入库单入库商品列表_GET.auxUnitId = 商品计量单位列表_GET.id"
+    销售退货入库单入库商品列表_GET }o--|| 商品计量单位列表_GET : "销售退货入库单入库商品列表_GET.baseUnitId = 商品计量单位列表_GET.id"
+    销售退货入库单入库商品列表_GET }o--|| 销售退货入库单列表_GET : "billNum"
+    销售退货入库单入库商品列表_GET }o--|| 商品分类列表_GET : "销售退货入库单入库商品列表_GET.categoryId = 商品分类列表_GET.id"
+    销售退货入库单入库商品列表_GET }o--|| 商品品牌列表_GET : "销售退货入库单入库商品列表_GET.brandId = 商品品牌列表_GET.id"
+    销售退货入库单列表_GET }o--|| 仓库列表_GET : "销售退货入库单列表_GET.warehouseId = 仓库列表_GET.id"
+    销售退货入库单列表_GET }o--|| 仓库列表_GET : "销售退货入库单列表_GET.warehouseCode = 仓库列表_GET.code"
+
+    采购退货出库单备注列表_GET }o--|| 采购退货出库单列表_GET : "billNum"
+    采购退货出库单备注列表_GET }o--|| 商品计量单位列表_GET : "采购退货出库单备注列表_GET.auxUnitId = 商品计量单位列表_GET.id"
+    采购退货出库单备注列表_GET }o--|| 商品计量单位列表_GET : "采购退货出库单备注列表_GET.baseUnitId = 商品计量单位列表_GET.id"
+    采购退货出库单备注列表_GET }o--|| 采购退货出库单列表_GET : "billNum"
+    采购退货出库单备注列表_GET }o--|| 商品分类列表_GET : "采购退货出库单备注列表_GET.categoryId = 商品分类列表_GET.id"
+    采购退货出库单备注列表_GET }o--|| 商品品牌列表_GET : "采购退货出库单备注列表_GET.brandId = 商品品牌列表_GET.id"
+    采购退货出库单备注列表_GET }o--|| 仓库列表_GET : "采购退货出库单备注列表_GET.warehouseId = 仓库列表_GET.id"
+
+    销售出库单备注列表_GET }o--|| 销售出库单列表_GET : "billNum"
+    销售出库单备注列表_GET }o--|| 商品计量单位列表_GET : "销售出库单备注列表_GET.auxUnitId = 商品计量单位列表_GET.id"
+    销售出库单备注列表_GET }o--|| 商品计量单位列表_GET : "销售出库单备注列表_GET.baseUnitId = 商品计量单位列表_GET.id"
+    销售出库单备注列表_GET }o--|| 销售出库单列表_GET : "billNum"
+    销售出库单备注列表_GET }o--|| 商品分类列表_GET : "销售出库单备注列表_GET.categoryId = 商品分类列表_GET.id"
+    销售出库单备注列表_GET }o--|| 商品品牌列表_GET : "销售出库单备注列表_GET.brandId = 商品品牌列表_GET.id"
+    销售出库单备注列表_GET }o--|| 仓库列表_GET : "销售出库单备注列表_GET.warehouseId = 仓库列表_GET.id"
+
+    退单列表_POST }o--|| 订单列表_POST : "退单列表_POST.relatedCode = 订单列表_POST.orderCode，存疑待核查"
+    退单详情_POST }o--|| 销售退货入库单列表_GET : "退单详情_POST.orderStorageDetailId = 销售退货入库单列表_GET.billNum，存疑待核查"
+    采购入库单列表_GET }o--|| 供应商列表_POST : "采购入库单列表_GET.supplierId = 供应商列表_POST.code，存疑待核查"
+
+    供应商列表_POST }o--|| 区域列表_GET : "供应商列表_POST.districtId = 区域列表_GET.id"
+
+```
