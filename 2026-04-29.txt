@@ -845,3 +845,5 @@ erDiagram
     供应商列表_POST }o--|| 区域列表_GET : "供应商列表_POST.districtId = 区域列表_GET.id"
 
 ```
+
+开摸！
