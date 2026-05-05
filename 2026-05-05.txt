@@ -1,0 +1,244 @@
+2026年5月5号（周二）
+
+把昨天的那一大坨文本喂给了LLM跑了一下：
+```python
+"""
+实体交互算法 —— 最简原型
+g( f(W), κ(O), h(M), P )
+"""
+
+# ============================================================
+# 1. f(W) —— 实体A的定义
+#    这里用一个"形状高度列表"来表示
+#    你也可以改成别的：字符串、二维矩阵、任何东西
+# ============================================================
+def f_W():
+    """返回实体A：一个简单的数字列表，想象成'形状的高度分布'"""
+    return [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8, 9, 7, 9]
+
+# ============================================================
+# 2. κ(O) —— 实体B的定义
+#    这里用一个"键盘字符列表"
+# ============================================================
+def kappa_O():
+    """返回实体B：类似于键盘布局的字符列表"""
+    return ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j',
+            'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't',
+            'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3',
+            '4', '5', '6', '7', '8', '9', '!', '?', ' ', ',']
+
+# ============================================================
+# 3. h(M) —— 交互规则（核心！）
+#    实体A的每个数字 对应到 实体B的某个位置，取出字符
+#    这就是"碰到键盘上哪个键"
+# ============================================================
+def h_interact(entity_A, entity_B):
+    """
+    交互规则：
+    entity_A 的每一个数字 mod 上 entity_B 的长度 = 对应的字符位置
+    取出的字符拼成字符串返回
+    """
+    result = ""
+    for value in entity_A:
+        index = value % len(entity_B)   # 取模，确保不越界
+        result += entity_B[index]
+    return result
+
+# ============================================================
+# 4. P —— 迭代元规则
+#    定义：每轮之间怎么做、做几轮
+# ============================================================
+class P_Rules:
+    """
+    P 是一组规则，包含：
+    - iterations: 总共迭代几轮
+    - mutate_A:  每轮怎么改变实体A
+    - mutate_B:  每轮怎么改变实体B
+    """
+    def __init__(self, iterations=3):
+        self.iterations = iterations
+        self.log = []  # 记录每轮的轨迹
+
+    def mutate_A(self, entity_A, round_num):
+        """每轮对实体A的处理：这轮我们把每个数字加上轮次"""
+        return [v + round_num for v in entity_A]
+
+    def mutate_B(self, entity_B, round_num):
+        """每轮对实体B的处理：这轮把列表循环左移"""
+        shift = round_num % len(entity_B)
+        return entity_B[shift:] + entity_B[:shift]
+
+# ============================================================
+# 5. g() —— 主函数：把所有东西串起来
+# ============================================================
+def g(P):
+    """
+    实体交互主函数
+    返回：整个交互过程产生的所有轨迹
+    """
+    entity_A = f_W()      # 初始化实体A
+    entity_B = kappa_O()  # 初始化实体B
+
+    all_traces = []
+
+    for round_num in range(1, P.iterations + 1):
+        # 交互
+        result = h_interact(entity_A, entity_B)
+        trace = {
+            "round": round_num,
+            "entity_A": entity_A.copy(),
+            "entity_B_first_5": entity_B[:5],
+            "output": result
+        }
+        all_traces.append(trace)
+        P.log.append(result)
+
+        # 迭代：改变实体，准备下一轮
+        entity_A = P.mutate_A(entity_A, round_num)
+        entity_B = P.mutate_B(entity_B, round_num)
+
+    return all_traces
+
+
+# ============================================================
+# 跑起来！
+# ============================================================
+if __name__ == "__main__":
+    # 创建P规则：迭代5轮
+    P = P_Rules(iterations=5)
+
+    # 运行
+    traces = g(P)
+
+    # 打印结果
+    print("=" * 60)
+    print("实体交互算法 —— 运行轨迹")
+    print("=" * 60)
+    for t in traces:
+        print(f"\n第 {t['round']} 轮:")
+        print(f"  实体A (前8个): {t['entity_A'][:8]}")
+        print(f"  实体B (前5个): {t['entity_B_first_5']}")
+        print(f"  输出: {t['output']}")
+
+    print("\n" + "=" * 60)
+    print("所有轮次输出汇总：")
+    for i, out in enumerate(P.log, 1):
+        print(f"  轮次{i}: {out}")
+```
+
+
+果然我讨厌面向对象编程，换了个提示词就容易理解多了：
+```python
+"""
+实体交互算法 —— 纯函数版
+g(f_W, kappa_O, h_interact, P)
+所有东西都是函数，P 是字典
+"""
+
+
+# ============================================================
+# 1. f_W() —— 实体A
+# ============================================================
+def f_W():
+    return [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8, 9, 7, 9]
+
+
+# ============================================================
+# 2. kappa_O() —— 实体B
+# ============================================================
+def kappa_O():
+    return ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j',
+            'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't',
+            'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3',
+            '4', '5', '6', '7', '8', '9', '!', '?', ' ', ',']
+
+
+# ============================================================
+# 3. h(实体A, 实体B) —— 交互规则
+# ============================================================
+def h_interact(entity_A, entity_B):
+    result = ""
+    for value in entity_A:
+        index = value % len(entity_B)
+        result += entity_B[index]
+    return result
+
+
+# ============================================================
+# 4. 迭代时怎么改变实体A和实体B
+# ============================================================
+def mutate_A(entity_A, round_num):
+    """每轮把每个数加上轮次"""
+    return [v + round_num for v in entity_A]
+
+
+def mutate_B(entity_B, round_num):
+    """每轮把列表循环左移"""
+    shift = round_num % len(entity_B)
+    return entity_B[shift:] + entity_B[:shift]
+
+
+# ============================================================
+# 5. g(P) —— 主函数
+#    P = {
+#        "iterations": 5,
+#        "mutate_A":   mutate_A,
+#        "mutate_B":   mutate_B,
+#    }
+# ============================================================
+def g(P):
+    entity_A = f_W()
+    entity_B = kappa_O()
+
+    all_outputs = []
+
+    for rnd in range(1, P["iterations"] + 1):
+        output = h_interact(entity_A, entity_B)
+        all_outputs.append(output)
+
+        print(f"第 {rnd} 轮")
+        print(f"  A (前8): {entity_A[:8]}")
+        print(f"  B (前5): {entity_B[:5]}")
+        print(f"  输出:    {output}")
+        print()
+
+        # 迭代
+        entity_A = P["mutate_A"](entity_A, rnd)
+        entity_B = P["mutate_B"](entity_B, rnd)
+
+    return all_outputs
+
+
+# ============================================================
+# 跑
+# ============================================================
+P = {
+    "iterations": 5,
+    "mutate_A": mutate_A,
+    "mutate_B": mutate_B,
+}
+
+results = g(P)
+
+print("所有输出:")
+for i, r in enumerate(results, 1):
+    print(f"  {i}: {r}")
+```
+
+让我捋捋这是个怎么个事：
+f_W()和kappa_O()这两个函数返回了两个实体，但是LLM给的写法就是一坨，这个样子更合适一点：
+```python
+def f():
+    W = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8, 9, 7, 9]
+    return W
+
+def kappa():
+    O = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j',
+            'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't',
+            'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3',
+            '4', '5', '6', '7', '8', '9', '!', '?', ' ', ',']
+    return O
+```
+然后……
+h_interact()函数需要输入两个参数A和B，循环读取A的每一个元素，然后……等等不对，这玩意儿被拆开了，这个函数只返回了一个交互过程中单一步骤的值，而不是返回结果，剩下部分它给塞进最下面的g()里面了，而且迭代规则也成分成了两个实体……emmm。
+这不太对，让我挠挠脑袋。
