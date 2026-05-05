@@ -349,5 +349,5 @@ if __name__ == "__main__":
     for rnd, output in traces:
         print(f"轮次 {rnd}: {output}")
 ```
-重新塞给LLM做代码审查，没发现问题，可以扔仓库了。回头再迭代一次把(entity_A, entity_B, P)里面的那个P拆出来。
+重新塞给LLM做代码审查，没发现问题，可以扔仓库了。回头再迭代一次把h(entity_A, entity_B, P)里面的那个P拆出来。
 换衣服出门，去老妈那边包抄手。
