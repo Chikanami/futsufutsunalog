@@ -64,7 +64,7 @@ tie-break 已定 [x]：当前 tick 相同时，MOV 高者优先 → 单位ID 小
 新增 §8.9b 修正值计算规则：
 ATK/DEF：乘法叠加 → floor() 截断
 MOV：if raw==0 → 0; else → max(1, floor(raw))（零值阻断+1格保底）
-VIScover：五维 OR 逻辑
+VIScover：添加地形对单位视野的遮蔽判定
 渲染
 球面模型描述适配：Goldberg → Fibonacci
 缩放约束放宽：旧版硬限制 80 行（含详细公式表）→ 新版「待实装后调整，不做硬性限制」
