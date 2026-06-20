@@ -1,0 +1,82 @@
+2026年6月20号（周六）
+
+不太妙，自动生成地图需要的代码量有点大LLM搞不定，具体技术细节又不够了解没法修先放着
+用地图编辑器试试
+
+地图编辑器LLM也搞不定，代码量还是太大了，得想个法子把架构和流程算法吃透，不然就死这儿了
+扔给LLM自己debug搞不定不说还会经费爆炸
+```markdown
+| date | model | type | tokens_amount |
+| --- | --- | --- | --- |
+| 2026/6/13 | deepseek-v4-pro | input_cache_hit_tokens | 1609856 |
+| 2026/6/13 | deepseek-v4-pro | input_cache_miss_tokens | 597698 |
+| 2026/6/13 | deepseek-v4-pro | output_tokens | 638765 |
+| 2026/6/14 | deepseek-v4-pro | input_cache_hit_tokens | 2477056 |
+| 2026/6/14 | deepseek-v4-pro | input_cache_miss_tokens | 462706 |
+| 2026/6/14 | deepseek-v4-pro | output_tokens | 165938 |
+| 2026/6/15 | deepseek-v4-pro | input_cache_hit_tokens | 2037120 |
+| 2026/6/15 | deepseek-v4-pro | input_cache_miss_tokens | 459383 |
+| 2026/6/15 | deepseek-v4-pro | output_tokens | 100036 |
+| 2026/6/16 | deepseek-v4-pro | input_cache_hit_tokens | 2059520 |
+| 2026/6/16 | deepseek-v4-pro | input_cache_miss_tokens | 306323 |
+| 2026/6/16 | deepseek-v4-pro | output_tokens | 97486 |
+| 2026/6/17 | deepseek-v4-pro | input_cache_hit_tokens | 4146560 |
+| 2026/6/17 | deepseek-v4-pro | input_cache_miss_tokens | 97402 |
+| 2026/6/17 | deepseek-v4-pro | output_tokens | 57233 |
+| 2026/6/18 | deepseek-v4-pro | input_cache_hit_tokens | 25966080 |
+| 2026/6/18 | deepseek-v4-pro | input_cache_miss_tokens | 864526 |
+| 2026/6/18 | deepseek-v4-pro | output_tokens | 326985 |
+| 2026/6/19 | deepseek-v4-pro | input_cache_hit_tokens | 51708288 |
+| 2026/6/19 | deepseek-v4-pro | input_cache_miss_tokens | 892859 |
+| 2026/6/19 | deepseek-v4-pro | output_tokens | 271774 |
+| 2026/6/20 | deepseek-v4-pro | input_cache_hit_tokens | 106771072 |
+| 2026/6/20 | deepseek-v4-pro | input_cache_miss_tokens | 1230668 |
+| 2026/6/20 | deepseek-v4-pro | output_tokens | 629589 |
+```
+```markdown
+| date | model | cost | currency |
+| --- | --- | --- | --- |
+| 2026/6/13 | deepseek-v4-pro | 5.6659304 | CNY |
+| 2026/6/14 | deepseek-v4-pro | 2.4456724 | CNY |
+| 2026/6/15 | deepseek-v4-pro | 2.029293 | CNY |
+| 2026/6/16 | deepseek-v4-pro | 1.555373 | CNY |
+| 2026/6/17 | deepseek-v4-pro | 0.739268 | CNY |
+| 2026/6/18 | deepseek-v4-pro | 5.20464 | CNY |
+| 2026/6/19 | deepseek-v4-pro | 5.6019282 | CNY |
+| 2026/6/20 | deepseek-v4-pro | 10.1388148 | CNY |
+```
+哇这开销真要命
+
+```LLM_update_log
+新增文件
+搁置_地图自动生成.md — 从 01_地图.md 拆分出的全部自动生成管线内容，并新增板块构造设计
+01_地图.md
+地图类型从「仅球面完整地图」扩展为「有限地图 + 完整地图」双模式
+新增地图编辑器制作流程说明（生成空白模板 → 人工逐格编辑 → 保存 JSON）
+新增 §1.1b 地图 JSON 格式规范（有限地图/完整地图两种格式的完整定义）
+图格属性从六维（地形/群落/天气/温度/湿度/资源）精简为四维（地形/构造/群落/资源）
+天气、温度、湿度从核心属性中移除
+属性表拆分：原混合地形表(01~20) → 地形(01~11) + 构造(12~20) 两个独立表
+移除整个第二章「地图生成机制」（§2.1~§2.13），迁移至 搁置_地图自动生成.md
+搁置_地图自动生成.md
+保留原 §2.1~§2.13 全部自动生成管线内容（球面几何/高程/水域/温度/风场/湿度/群落/聚落/道路）
+保留天气(7种)、温度(7种)、湿度(3种)、气候(21种)参数表
+新增 §2.2b 板块构造（备份版不存在）：
+板块划分：K=12 种子点，三轮 BFS 扩张，长宽比 ≤1:3 约束，边界凹陷检测
+漂移向量：随机 3D 球面漂移，dot 阈值 ±0.005 分类挤压/拉张/走滑边界
+高程修正：挤压带抬升 +1.2×|dot|×decay，拉张带沉降 −0.8×|dot|×decay
+影响范围 squeeze_width=3
+高程公式新增 tectonic_uplift 和 tectonic_subsidence 项
+§2.13 待定项新增：板块构造参数（K/d_min/d_max 的 N 自适应标定、squeeze_width 调校）
+04_战斗.md
+DICE 输入 ID 列表变更：
+旧：[图格ID, 地形ID, 群落ID, 温度ID, 湿度ID, 天气ID, 单位ID]（固定 7 项）
+新：[图格ID, 地形ID, 群落ID, 单位ID?, 建筑ID?]（3~5 项可变）
+温度/湿度/天气 ID 从 DICE 输入中移除
+建筑 ID 新增为可选输入（图格有建筑时参与）
+数字位数：14 → 6~10
+迭代上限：≤252 → ≤180
+完整示例数据同步更新
+07_规划.md
+§10.5 待定项新增：板块构造参数（K/d_min/d_max 的 N 自适应标定、squeeze_width 调校）
+```
