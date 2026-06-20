@@ -8,18 +8,6 @@
 ```markdown
 | date | model | type | tokens_amount |
 | --- | --- | --- | --- |
-| 2026/6/13 | deepseek-v4-pro | input_cache_hit_tokens | 1609856 |
-| 2026/6/13 | deepseek-v4-pro | input_cache_miss_tokens | 597698 |
-| 2026/6/13 | deepseek-v4-pro | output_tokens | 638765 |
-| 2026/6/14 | deepseek-v4-pro | input_cache_hit_tokens | 2477056 |
-| 2026/6/14 | deepseek-v4-pro | input_cache_miss_tokens | 462706 |
-| 2026/6/14 | deepseek-v4-pro | output_tokens | 165938 |
-| 2026/6/15 | deepseek-v4-pro | input_cache_hit_tokens | 2037120 |
-| 2026/6/15 | deepseek-v4-pro | input_cache_miss_tokens | 459383 |
-| 2026/6/15 | deepseek-v4-pro | output_tokens | 100036 |
-| 2026/6/16 | deepseek-v4-pro | input_cache_hit_tokens | 2059520 |
-| 2026/6/16 | deepseek-v4-pro | input_cache_miss_tokens | 306323 |
-| 2026/6/16 | deepseek-v4-pro | output_tokens | 97486 |
 | 2026/6/17 | deepseek-v4-pro | input_cache_hit_tokens | 4146560 |
 | 2026/6/17 | deepseek-v4-pro | input_cache_miss_tokens | 97402 |
 | 2026/6/17 | deepseek-v4-pro | output_tokens | 57233 |
@@ -36,10 +24,6 @@
 ```markdown
 | date | model | cost | currency |
 | --- | --- | --- | --- |
-| 2026/6/13 | deepseek-v4-pro | 5.6659304 | CNY |
-| 2026/6/14 | deepseek-v4-pro | 2.4456724 | CNY |
-| 2026/6/15 | deepseek-v4-pro | 2.029293 | CNY |
-| 2026/6/16 | deepseek-v4-pro | 1.555373 | CNY |
 | 2026/6/17 | deepseek-v4-pro | 0.739268 | CNY |
 | 2026/6/18 | deepseek-v4-pro | 5.20464 | CNY |
 | 2026/6/19 | deepseek-v4-pro | 5.6019282 | CNY |
