@@ -1,0 +1,126 @@
+2026年7月3日（周五—）
+
+
+```markdown
+# GDS 条码名称查询
+
+批量查询 GTIN 条码对应的产品中文信息（名称、规格、厂商、品牌、分类），调用[中国商品信息服务平台](https://www.gds.org.cn) API。
+
+## 目录
+
+```
+条码名称查询/
+├── query_barcode.py      # 主脚本
+├── config.json           # Token + 运行参数
+├── run_state.json        # 配额状态缓存（自动生成）
+├── 输入/                 # xlsx/csv，第一列为 GTIN
+└── 输出/                 # 查询结果 CSV
+```
+
+## 快速开始
+
+```bash
+pip install requests openpyxl
+
+# 1. 浏览器访问 GDS → F12 → ProductListByGTIN 请求 → Authorization 头
+#    去掉 "Bearer " 前缀，填入 config.json 的 token 字段
+# 2. 把 xlsx/csv 扔进 输入/
+# 3. python query_barcode.py
+```
+
+## 配置
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `token` | string | — | JWT Bearer Token（不含 "Bearer " 前缀） |
+| `base_delay` | float | 20 | 请求间隔（秒），实际 ±1.3 随机浮动 |
+| `delay_jitter` | float | 1.3 | 浮动范围 |
+| `skip_header` | bool | true | 跳过输入文件首行 |
+| `request_timeout` | int | 30 | 单次请求超时（秒） |
+| `max_retries` | int | 1 | 失败重试次数 |
+
+## 运行流程
+
+```
+加载 config.json
+    │
+    ├─ 扫描 输入/ → 读所有 xlsx/csv 第一列 → 去重去空
+    │
+    ├─ [阻断点] Token 有效期检查
+    │     └─ 过期 或 剩余时间不够跑完 → 终止并给出缺口
+    │
+    ├─ [阻断点] API 配额检查
+    │     ├─ run_state.json 缓存未过期 → 直接用
+    │     └─ 缓存过期 → 探测请求 → remaining < N → 终止
+    │
+    ├─ 逐条 GET /ProductListByGTIN?SearchItem={gtin}
+    │     ├─ 401 → 立即终止
+    │     ├─ 超时/连接错误 → 重试 1 次
+    │     └─ 每条间隔 20±1.3s
+    │
+    └─ 输出 → 查询结果_yyyyMMdd_HHmmss.csv + 更新 run_state.json
+```
+
+### 耗时估算
+
+```
+单次最坏 = (base_delay + jitter) + timeout × (1 + retries) + 5s
+总预估  = 单次 × (N - 1) + timeout × (1 + retries) + 60s 余量
+```
+
+## API 参考
+
+| 项 | 值 |
+|---|---|
+| 端点 | `GET https://bff.gds.org.cn/gds/searching-api/ProductService/ProductListByGTIN` |
+| 参数 | `PageSize=30&PageIndex=1&SearchItem={gtin}` |
+| 认证 | `Authorization: Bearer {token}` |
+| Token 有效期 | ~6 小时 |
+
+### 速率限制
+
+| 响应头 | 含义 |
+|---|---|
+| `X-Rate-Limit-Limit` | `"7d"`（7 天窗口） |
+| `X-Rate-Limit-Remaining` | ~1000/7 天 |
+| `X-Rate-Limit-Reset` | 下次归零时间（ISO） |
+
+### 输出字段
+
+从 `Data.Items[0]` 提取：`RegulatedProductName`、`specification`、`firm_name`、`brandcn`、`gpcname`。
+
+输出 CSV（UTF-8 BOM）：`GTIN,RegulatedProductName,specification,firm_name,brandcn,gpcname`。查询失败的行为空值，不中断后续。
+
+## 状态文件
+
+`run_state.json`（自动生成，用于下次运行的配额缓存）：
+
+| 字段 | 说明 |
+|------|------|
+| `rate_limit_remaining` | 估算值（初始 − 已查询数），非实时 |
+| `rate_limit_reset` | 配额重置时间，未过期则跳过探测请求 |
+| `queries_successful` / `queries_failed` | 本次统计 |
+
+## 错误处理
+
+| 阶段 | 触发条件 | 行为 |
+|------|---------|------|
+| 启动 | config.json 不存在 | 终止 |
+| 启动 | Token 为空 | 终止 |
+| Token 检查 | 已过期 / 时间不够 | 终止 + 缺口分析 |
+| 配额检查 | remaining < N | 终止 + 等待建议 |
+| 逐条查询 | HTTP 401 | 立即终止全部 |
+| 逐条查询 | 超时/连接错 | 重试 1 次 → 记录失败继续 |
+| 逐条查询 | API Code≠1 / Items 空 | 记录失败继续 |
+| 全局 | KeyboardInterrupt | 优雅退出 |
+
+## 依赖
+
+| 包 | 用途 |
+|---|---|
+| `requests` | HTTP |
+| `openpyxl` | 读 xlsx |
+
+其余为标准库：`json, csv, base64, time, random, datetime, pathlib`。
+
+```
