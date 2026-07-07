@@ -1,0 +1,182 @@
+2026年7月7日（周二）
+
+第一件事先对着东北边扔块石头
+
+经管部主管昨下午就开始休年假了，有些事得找她商量感觉不太方便
+
+老板的意思是从结算开始倒推中间和开端
+emmmmmmm……虽然也不是不行
+才有鬼
+空中楼阁早晚要塌
+
+
+试着对询价和商品管理这档子事整点什么东西
+```数据库结构-商品
+erDiagram
+    "供应商档案" {
+        string supplier_id PK "供应商ID"
+        string supplier_name "名称"
+        string tax_id "税号"
+        string location "所在地"
+    }
+    "门店档案" {
+        string store_id PK "门店ID"
+        string store_name "名称"
+        string location "所在地"
+    }
+    "商品档案" {
+        string product_id PK "商品ID（EAN码或内部码）"
+        string product_name "名称"
+        string category_id FK "品类ID"
+        int shelf_life "保质期天数，-1为非饮食类等无法定保质期商品"
+        string spec "规格"
+    }
+    "询价档案" {
+	    string inquiry_batch_id "询价批次ID"
+        string inquiry_id PK "询价条目ID"
+        string product_id FK "商品ID（EAN码或内部码）"
+        string inquiry_time "询价时间 yyyy-MM-dd hh:mm:ss"
+        string channel "询价渠道"
+        float inquiry_price "价格"
+        string photo_path "询价照片路径"
+        string inquiry_category "商品分类，独立于商品本身的品类，与甲方要求品类分类一致"
+        string remarks "备注（同商品不同规格折算等特殊情况说明）"
+    }
+    "品类档案" {
+        string category_id PK "品类ID"
+        string category_name "品类名称"
+    }
+    "报价明细 同步至图数据库" {
+        string quotation_id PK "报价条目ID"
+        string supplier_id FK "供应商ID"
+        string product_id FK "商品ID"
+        string quote_time "报价时间 yyyy-MM-dd hh:mm:ss"
+        float quotation_amount "报价金额"
+        string store_id FK "供应门店ID"
+    }
+    "商品档案" ||--o{ "报价明细 同步至图数据库" : ""
+    "商品档案" ||--o{ "询价档案" : ""
+    "品类档案" ||--o{ "商品档案" : ""
+    "供应商档案" ||--o{ "报价明细 同步至图数据库" : ""
+    "门店档案" ||--o{ "报价明细 同步至图数据库" : ""
+```
+```询价照片处理流程
+```mermaid
+sequenceDiagram
+    管理员 ->> 主机端:上传该询价业务的被询价商品明细与询价时间、询价批次ID
+    主机端 ->> 主机端:生成该批次的临时询价档案，临时档案较实体"询价档案"增加string字段"复核状态"仅有"未复核""正在复核""已复核"三种值合法，增加string字段"复核人ID"
+    用户 ->> 用户端应用:点击"重命名照片"按钮
+    用户端应用 ->> 用户端应用:跳转至"图片预览与信息填写"界面，"图片预览"框显示文字"请拖入需处理的照片"
+    用户 ->> 用户端应用:拖入图片
+    用户端应用 ->> 主机端:上传图片
+    主机端 ->> 主机端:储存文件并缓存文件名
+    主机端 ->> 用户端应用:返回图片上传完成信号
+    用户端应用 ->> 用户:提示图片已完成上传，在图片浏览器中显示第一张图片
+    用户 ->> 用户端应用:填写信息后点击提交
+    用户端应用 ->> 主机端:返回该条信息以及绑定的图片文件名、用户ID
+    主机端 ->> 主机端:校验收到的EAN码是否在该批次的商品明细中
+    alt 通过校验
+        主机端 ->> 主机端:将信息保存在临时询价档案中
+        主机端 ->> 用户端应用:返回校验通过信息
+        用户端应用 ->> 用户:提示"提交成功"，跳转到下一张图片
+    else 未通过校验
+        主机端 ->> 用户端应用:返回校验未通过信息
+        用户端应用 ->> 用户:提示"条码未在询价清单中找到，请核实并重试"
+    end
+```
+
+```mermaid
+sequenceDiagram
+    用户 ->> 用户端应用:点击"复核照片"按钮
+    用户端应用 ->> 主机端:发送请求
+    主机端 ->> 主机端:检索临时询价档案，计算未复核照片数量
+    主机端 ->> 用户端应用:返回未复核照片数量以及其他响应信息
+    用户端应用 ->> 用户:跳转至"图片信息复核_界面1"
+    用户 ->> 用户端应用:输入本次计划进行复核的照片数量并点击"确认"按钮
+    用户端应用 ->> 主机端:发送本次进行复核照片数量以及其他请求信息
+    主机端 ->> 主机端:检索未复核照片条目，随机抽取相应数量，将对应字段修改为"正在复核"并提取询价信息以及绑定的照片文件，当请求的复核数量超过状态为"未复核"的条目数量时，提取所有剩余条目
+    主机端 ->> 用户端应用:返回提取的询价信息、绑定的照片文件以及其他响应信息
+    用户端应用 ->> 用户端应用:跳转到"图片信息复核_界面2"，显示第一张图片及其询价信息
+    用户 ->> 用户:核验询价信息与照片是否相符
+    alt 确认无误
+        用户 ->> 用户端应用:点击"确认按钮"
+        用户端应用 ->> 主机端:发送相应请求信息
+        主机端 ->> 主机端:将"临时询价档案"中对应条目状态修改为"已复核"
+        主机端 ->> 用户端应用:返回对应响应
+        用户端应用 ->> 用户:角落弹窗提示"提交成功"，跳转至下一张照片
+    else 发现错误
+        用户 ->> 用户端应用:修改错误信息，点击"确认按钮"
+        用户端应用 ->> 主机端:发送相应的请求信息
+        主机端 ->> 主机端:修改"临时询价档案"中的变更信息，将该条目状态修改为"已复核"
+        主机端 ->> 用户端应用:返回对应响应
+        用户端应用 ->> 用户:角落弹窗提示"提交成功"，跳转至下一张照片
+    end
+    主机端 ->> 主机端:临时询价档案中所有条目状态均为"已复核"时，将数据存入"询价档案"中
+```
+
+图片信息复核_界面2与"图片预览与信息填写"界面UI一致
+
+## 图片信息复核_界面1 草图
+
+```svg
+<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+ <g>
+  <title>Layer 1</title>
+  <rect id="svg_1" height="486" width="615" y="49" x="91" stroke="#000" fill="#fff"/>
+  <rect id="svg_21" height="53" width="299" y="232" x="238" stroke="#000" fill="#fff"/>
+  <rect id="svg_22" height="49" width="99" y="333" x="347" stroke="#000" fill="#fff"/>
+  <text xml:space="preserve" text-anchor="start" font-family="Noto Sans JP" font-size="24" stroke-width="0" id="svg_24" y="165" x="224" stroke="#000" fill="#000000">请填写本次进行复核的照片数量</text>
+  <text xml:space="preserve" text-anchor="start" font-family="Noto Sans JP" font-size="24" id="svg_25" y="210" x="259" stroke-width="0" stroke="#000" fill="#000000">剩余未复核照片数量:XX</text>
+  <text xml:space="preserve" text-anchor="start" font-family="Noto Sans JP" font-size="24" id="svg_26" y="367" x="367" stroke-width="0" stroke="#000" fill="#000000">确认</text>
+ </g>
+</svg>
+```
+
+## 图片预览与信息填写界面 草图
+
+```svg
+<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+ <g>
+  <title>Layer 1</title>
+  <rect id="svg_1" height="486" width="615" y="51" x="97" stroke="#000" fill="#fff"/>
+  <rect stroke="#000" id="svg_2" height="311" width="517.00004" y="83.00001" x="159.99999" fill="#fff"/>
+  <path id="svg_3" d="m164,436l168,0l0,35l-168,0l0,-35z" opacity="undefined" stroke="#000" fill="#fff"/>
+  <text xml:space="preserve" text-anchor="start" font-family="Noto Sans JP" font-size="24" stroke-width="0" id="svg_7" y="159" x="373" stroke="#000" fill="#000000">图片</text>
+  <text xml:space="preserve" text-anchor="start" font-family="Noto Sans JP" font-size="24" stroke-width="0" id="svg_8" y="463" x="174" stroke="#000" fill="#000000">条码</text>
+  <path stroke="#000" id="svg_13" d="m345.13531,436l56,0l0,35l-56,0l0,-35z" opacity="undefined" fill="#fff"/>
+  <path stroke="#000" id="svg_14" d="m418.30635,436l56.00001,0l0,35l-56.00001,0l0,-35z" opacity="undefined" fill="#fff"/>
+  <path stroke="#000" id="svg_15" d="m493.13868,436l56.00001,0l0,35l-56.00001,0l0,-35z" opacity="undefined" fill="#fff"/>
+  <text xml:space="preserve" text-anchor="start" font-family="Noto Sans JP" font-size="24" stroke-width="0" id="svg_16" y="464" x="349" stroke="#000" fill="#000000">价格</text>
+  <text xml:space="preserve" text-anchor="start" font-family="Noto Sans JP" font-size="24" stroke-width="0" id="svg_17" y="464" x="424" stroke="#000" fill="#000000">品类</text>
+  <text xml:space="preserve" text-anchor="start" font-family="Noto Sans JP" font-size="24" stroke-width="0" id="svg_18" y="465" x="497" stroke="#000" fill="#000000">渠道</text>
+ </g>
+</svg>
+```
+```
+
+挠脑袋挠到快下班挠出来这些，先这样
+
+才看到数据中心主管中午就发了消息，老板派了活过来。
+妈耶吓死了一直没看到
+下去问才知道这周内搞定就行，那不着急了
+
+临了下班前经管主管发消息
+```wechat
+ 7/7 17:45:52
+小李，你最近要抓紧时间督促数据中心把各超市系统以及台账整理出来哦，要不然越以后面越难，报表都没法出
+ 7/7 17:46:32
+不是没法出，而是出来的报表数据千奇百怪的，差异很大
+ 7/7 17:50:37
+要尽快落实下去，我不能每个月都跟老板这样解释，这样的话是体现她的失败还是我们的无能呢，真的今天我把报表发给她的时候我都无法说服自己。
+ 7/7 17:51:51
+还有邛崃那个一个商品几家供应商都 在送，如果成本不一样的话，这个系统用不上，那我就要要求数据中心做手工台账了，要不然这个账根本跟不起走，毛利，利润 这些根本不准确
+ 7/7 17:52:49
+还有现场销售数据如果无法区分，哪家供应商送的，这个卖出去的成本算哪家呢？难道就象老板说的平均分配，这怕是不合适吧，再说供应商那里怎么沟通？
+```
+正好和她说我打算约一下新来负责超市管理的那个大牛一起去趟现场，顺便沟通一下这些事
+领导没什么意见
+
+看看什么时候约一下
+得想法子撺掇他把店里的那个傻卵看看怎么弄一下，那店长是个关系户，还真不好动他
+不知道前几天他给他做思想工作有没有效果
+
