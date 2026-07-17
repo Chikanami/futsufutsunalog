@@ -240,7 +240,7 @@ emmmmm……不太合口味感觉蠢蠢的
 
 | 表 | 清理前 | 清理后 |
 |---|---|---|
-| users | 4 | **4（全部保留：admin / 成都_张三 / 重庆_李四 / 周小平）** |
+| users | 4 | **4（全部保留：admin / 成都_张三 / 重庆_李四）** |
 | inquiry_batches | 3 | 0 |
 | inquiry_plan_items | 6 | 0 |
 | inquiry_temp | 6 | 0 |
