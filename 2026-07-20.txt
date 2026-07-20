@@ -1,0 +1,622 @@
+2026年7月20日（周一）
+折腾了一整天，看起来后天就可以正式测试了，没问题的话就能上线了。
+然后再去啃那堆制度文件，想办法把工作流程挖出来
+前阵子发过去的台账模板还没回我，啧，下班前催了一下
+
+明天测试一下往表格里插照片的那个功能，没问题的话说不准正式测试还能提前一点。
+
+```Markown
+## 2026-07-16
+
+### 一、设计符合性审查
+
+对照设计文档逐项审查代码，结论：主流程链路完整（批次上传 → 生成临时询价档案 → 录入校验 → 复核 → 全部复核后迁移正式档案），但存在 2 处功能性 Bug、4 处设计偏差、若干内部一致性问题。
+
+### 二、缺陷修复（P0–P2）
+
+**P0 — 功能性 Bug**
+- `server.py`：新增 `GET /uploads/{path}` 路由，修复复核界面照片 404（原路由缺失导致核心复核环节不可用）；含路径穿越防护
+- `app_db.py`：修复 `submit_inquiry` INSERT 兜底分支列数不匹配（10 列对 9 值，触发即崩溃），并补写 `batch_id`
+
+**P1 — 设计符合性**
+- 复核抽取改为 `ORDER BY RANDOM()`，符合设计"随机抽取"
+- EAN 校验由 `LIKE '%..%'` 子串匹配改为精确匹配（消除短条码误匹配长条码的风险），并将命中批次传入提交流程定位"该批次"的待录入行
+- 未复核统计与认领口径统一：均排除预生成空行（`created_by IS NOT NULL`）+ 按 project 过滤
+
+**P2 — 完善项**
+- 复核界面放开全字段修改（品类/渠道/备注原为 disabled），弹窗文案按设计改为"提交成功"
+- `created_by` / `reviewed_by` 统一存用户 ID（原混存用户名，与 ERD 不符）
+- 批次上传支持管理员指定 `batch_id` / `batch_name` / `inquiry_time`（原全部自动生成）
+
+### 三、新增功能
+
+1. **下载模板**（询价计划页）
+   - `GET /api/admin/batches/template` 内存生成 .xlsx（表头：条码 | 商品名称）
+   - 条码列前 1000 行预设文本格式，防止 EAN 码被 Excel 转科学计数法
+   - 前端经 fetch + Blob 携带 token 下载，文件名"询价商品明细模板.xlsx"
+
+2. **批次名称修改**
+   - `PUT /api/admin/batches/{batch_id}/name`；前端列表行内"改名"按钮 + prompt 输入
+
+3. **批次内容查看**
+   - `GET /api/admin/batches/{batch_id}/items`；批次名称变为可点击链接，弹窗展示 条码/商品名称/状态（未录入、未复核、正在复核、已复核 彩色标签），可直观查看批次执行进度
+
+4. **登录账号 / 用户名分离**
+   - `users` 表新增 `display_name` 列；登录用 `username`（登录账号），界面显示用 `display_name`（用户名）
+   - 登录页、工作台顶栏、管理后台顶栏、用户列表、批次创建人均已适配
+   - 旧用户自动迁移（display_name 默认取登录账号）
+
+5. **录入页一图多商品**
+   - 信息填写栏在上传图片前即显示，但全部控件锁定（disabled）；上传完成后解锁
+   - "＋ 添加商品"按钮可为同一张图片追加多条商品信息条目（第 2 条起可删除）
+   - 提交前整体校验，逐条提交，`photo_path` 指向同一图片文件 → 数据库中多条码行共享一张照片
+   - 失败条目保留在表单中待修正，成功条目自动移除
+
+### 四、数据结构变更（app.db）
+
+| 变更 | 说明 |
+|---|---|
+| 新增 `inquiry_plan_items` 表 | 询价计划商品明细逐行存储（item_id, batch_id, barcode, product_name），batch_id+barcode 联合唯一 |
+| 删除 `inquiry_batches.product_list` 列 | 原 JSON 数组存储条码白名单，改为明细表逐行承载；启动时自动迁移旧数据后删列 |
+| `users` 新增 `display_name` 列 | 启动时自动补列并回填 |
+| 商品名称贯通 | 上传批次时商品名称入库，`generate_temp_entries` 生成临时档案时一并填入 `product_name` |
+
+迁移逻辑集中在 `app_db._migrate_schema()`，幂等，服务启动时自动执行。ERD 文档（`data/ERD.md`）已同步更新。
+
+### 五、Bug 修复（前端）
+
+- **录入页预览图不显示**：`style.display=''` 置空内联样式后回落到 CSS 类的 `display:none`，预览框永不显示；改为 `display='block'`。（教训：同页面 CSS 类隐藏与内联隐藏混用导致 `style.display=''` 行为不一致）
+
+### 六、运维事项与已知问题
+
+1. **热重载不可靠（重要）**
+   - 服务以 `Start-Process -WindowStyle Hidden` 后台启动时，watchfiles 能检测到变更并打印 `Reloading...`，但旧 worker 无法被终止（Windows 下向无控制台子进程发信号失败），重载卡死、继续运行旧代码
+   - **约定：每次改动 Python 代码后手动重启服务**；静态文件（HTML/JS）即改即生效无需重启
+   - 重启方式：`taskkill /PID <主进程> /T /F` 后经 PowerShell `Start-Process` 拉起，日志重定向至 `data/server.log` / `data/server.err.log`
+   - 曾因此出现两次"改了代码但不生效"的假象（模板路由 404、批次内容路由 404）
+
+2. **watchfiles 已安装**，在交互式终端手动运行 `python server.py` 时热重载可正常工作
+
+3. **测试资源**：`test_images/` 下有 4 张测试图（2 张模拟价签图含条码 6901234567890 / 6909876543210，2 张空白图）
+
+### 七、测试记录
+
+- 全链路端到端（临时库）：批次创建（指定 ID）→ 预生成空行 → EAN 精确校验（含子串拒绝）→ 提交/重复提交覆盖 → 随机认领（空行不被认领）→ 部分复核不迁移 → 全部复核迁移 `inquiry_records` + 批次置 done ✅
+- INSERT 兜底分支专项测试 ✅
+- 模板生成 → 用户填写（文本/数字两种条码格式）→ 上传解析 往返测试 ✅
+- 旧库结构迁移测试（display_name 补列、product_list JSON 拆行入明细表并删列）✅
+- 线上探活：所有新路由注册状态、正式库表结构均验证通过 ✅
+
+### 待办 / 遗留
+
+- [ ] 密码仍为明文存储（内网环境暂接受，`auth.hash_password` 为直通实现）
+- [ ] `/uploads` 图片访问无鉴权（`<img>` 无法携带 Authorization 头，内网环境暂接受）
+- [ ] 设计文档中"重命名照片"按钮命名与实现（"录入"模式）不一致，属文案级差异
+- [ ] 仪表盘"待复核"计数为 `inquiry_temp` 全表行数，含未录入空行，口径与复核页不一致（低优先级）
+
+---
+
+## 2026-07-16 (续)
+
+### 八、数据库清理（测试数据）
+
+清理 app.db 中开发过程产生的测试数据，保留全部用户账号。
+
+**清理判定**：现存 3 个批次（`b_0f81cb82` 内部测试、`b_205b64fa` / `b_30112d71` 模板导入测试）均为测试批次（含测试条码 1111111111 / 2222222222 / 6901234567890 / 6909876543210），其关联的临时档案、正式记录、商品明细全部随之删除；周小平（u_d732a5a4）18:30 的提交属于录入流程测试（测试批次+测试条码），一并清理。
+
+**清理结果：**
+
+| 表 | 清理前 | 清理后 |
+|---|---|---|
+| users | 4 | **4（全部保留：admin / 成都_张三 / 重庆_李四 / 周小平）** |
+| inquiry_batches | 3 | 0 |
+| inquiry_plan_items | 6 | 0 |
+| inquiry_temp | 6 | 0 |
+| inquiry_records | 2 | 0 |
+| uploads/ 图片文件 | 7 | 0（业务记录已清空，全部为孤儿文件） |
+
+数据库回到"仅有用户账号"的干净状态，可直接开始正式业务使用。
+
+### 九、遗留清理 + 架构重构（功能域垂直拆分）
+
+**遗留清理**：删除废弃模块 `db.py`、`admin_db.py`（旧 ProductDB 用户表操作，无存活引用）及其字节码缓存。
+
+**架构重构**：将单体 `server.py`（310 行）/ `app_db.py`（500 行）/ `auth.py` 按功能域垂直拆分：
+
+```
+PriceInquiry/
+├── main.py            中央调度：组装路由、静态资源(/,/static,/uploads)、/api/config、
+│                      init_all 移入 lifespan 启动事件（消除 import 副作用）、uvicorn 入口
+├── core/              公共层
+│   ├── config.py      路径常量 + 品类/渠道选项 + DB_PATH
+│   ├── database.py    get_conn / init_all(5表DDL) / _migrate_schema / _migrate_users
+│   └── auth.py        JWT + get_current_user + require_admin（横切）
+├── users/             用户管理域：登录、/api/me、用户CRUD、仪表盘
+├── plans/             询价计划域：模板下载、批次上传/列表/内容/改名、EAN白名单校验
+└── inquiry/           录入/复核域：照片上传、录入提交、复核认领/完成、临时档案生成
+    （每域 routes.py + db.py 同文件夹放置）
+```
+
+**跨域依赖规则**（写谁的表归谁；routes 可跨域调 db，db 之间不互调）：
+- `plans/routes.upload_batch` → `inquiry/db.generate_temp_entries`（批次创建后生成临时档案）
+- `inquiry/routes.submit` → `plans/db.validate_ean_in_batch`（录入前白名单校验）
+- 例外标注：`inquiry/db.complete_review` 整批完成时同连接更新 `inquiry_batches.status`（事务一致性优先）；`plans/db.get_batch_items` 只读 JOIN `inquiry_temp`
+
+**由此确立的核心架构原则**：本项目以功能域为界，每个模块使用独立文件进行管理与配置——每域 `routes.py` + `db.py` 同目录放置；域名即文件目录名；跨域调用仅限 `routes → 其他域 db`（单向），`db` 之间不互调；`core/` 为公共层（配置/数据库/认证/审计），不持有业务逻辑；新增功能一律按此模式在对应域内扩展，不向 `main.py` 或 `core/` 泄漏业务代码。
+
+**验证**：py_compile 全部通过；临时库全链路回归（17 断言）通过；TestClient 实测 16 个端点（登录→建批次→录入→白名单拒绝→复核→静态资源→路径穿越防护）全部符合预期；线上切换后各域探活正常。
+
+**运维变更（重要）**：启动入口由 `server.py` 改为 **`main.py`**，重启命令同步更新：
+`python D:/LLMwork/PriceInquiry/main.py`（PowerShell Start-Process 后台方式不变）。API 路径与前端零改动。
+
+### 十、配置外置 config.ini + 项目维度支持
+
+**配置外置**：业务配置由 `core/config.py` 硬编码常量迁至项目根目录 **`config.ini`**（UTF-8），`core/config.py` 改为加载器（configparser），**每次请求实时读取——修改 ini 无需重启服务**；ini 缺失/损坏时回退内置兜底值。
+
+**config.ini 结构**：
+```ini
+[default]                 ; 兜底配置
+categories = ...
+channels = ...
+[project:成都项目]         ; 项目段，段名后缀须与用户表 project 字段一致
+categories = ...
+channels = ...（成都含红旗连锁、重庆含重百超市）
+```
+
+**项目维度贯通**：
+- `inquiry_batches` 新增 `project` 列（幂等迁移自动补列），批次归属项目
+- 询价计划页新增项目下拉框（来自 config.ini）；批次列表/上传结果显示项目
+- 模板增加项目信息：D1 表头"项目"+ D2 值；下载时可带 `?project=` 预填
+- 上传项目来源优先级：**表单选择 > 模板 D2**；必填且须在 config.ini 中已定义，否则 400
+- `/api/config` 按当前用户所属项目下发 categories/channels（录入/复核表单自动随项目变化），并返回 projects 列表供管理页
+- **EAN 白名单按项目隔离**：`validate_ean_in_batch` 增加 `b.project` 过滤，成都用户无法向重庆批次录入（进一步贴合设计文档"该批次"语义）；project 为空的旧批次对所有项目可见（兼容）
+
+**验证**：TestClient 全场景 7 组测试通过（按项目下发配置、模板 D2 嵌入、无项目/未知项目 400、表单与模板两种途径建批次、跨项目条码提交拒绝、批次列表含项目）；重启后线上探活正常，正式库 project 列迁移完成。
+
+## 2026-07-17
+
+### 一、项目配置入库（config.ini 废弃）+ 项目管理界面
+
+**配置存储重构**：`config.ini` 及其加载逻辑废弃，项目配置迁入 app.db 两张新表：
+- `project_categories(id, project_name, category)` — 每行一个品类，项目内唯一，id 兼作排序
+- `project_channels(id, project_name, channel)` — 每行一个渠道
+
+迁移策略（`core/database._migrate_config_ini`，幂等）：两表均空时执行种子写入——优先搬迁 config.ini 历史内容，ini 不存在则写内置默认三项目；迁移完成后 config.ini 归档为 `config.ini.bak`。`core/config.py` 回归纯路径常量 + 内置兜底值；配置读取函数移至 `plans/db.py`（项目管理属询价计划域业务）。
+
+**上传严格校验**：批次上传时检测项目是否存在于配置表，不存在则 400 拒绝，前端提示"**项目名称不正确，请重新核对**"。
+
+**项目管理界面**：询价计划页新增"项目管理"按钮 → 弹窗管理项目名称/商品品类/询价渠道（逗号分隔编辑、整体替换语义）：
+- `GET /api/admin/projects` 全部项目配置
+- `POST /api/admin/projects` 新建/整体更新（品类渠道至少各一项）
+- `DELETE /api/admin/projects/{name}` 删除（已有批次引用时拒绝）
+
+**验证**：TestClient 6 组测试通过（ini 迁移种子、按项目下发、CRUD、未知项目 400 文案、批次引用删除保护、未配置项目兜底）；正式库两表已建，三项目配置完整（成都含红旗连锁、重庆含重百超市）。
+
+### 二、事故记录：服务多实例叠加（重要教训）
+
+**现象**：重启后新路由仍随机 404。排查发现 **4 套服务进程同时监听 8088**（含一套 07-16 的旧 server.py 单体架构进程），Windows 允许多进程绑定同端口，请求被随机分配到新旧 worker。
+
+**根因**：多轮重启使用的 PowerShell 命令 `ForEach-Object { Stop-Process -Id $_.ProcessId }` 中 `$_` 在 bash 双引号内被展开为空，Stop-Process **静默失败**，旧进程从未被杀掉，每次"重启"实为叠加新实例。
+
+**处置**：taskkill 显式 PID 清掉全部 8 个进程（4 主 + 4 worker），干净启动单实例；连续 10 次探测确认路由稳定 401。
+
+**规范（今后重启必须遵守）**：
+1. 先 `wmic process where "name like '%python%'" get ProcessId,CommandLine` 列出全部进程
+2. 用 `taskkill /PID <pid> /T /F` 显式终止（禁用含 `$_` 的 PowerShell 管道，bash 转义会破坏它）
+3. 启动后**连续多次**探测新路由，确认无残留实例接管请求
+4. 验证 python 进程数应为 2（reloader + worker）
+
+### 三、防重复提交 + 图片生命周期管理 + 进度侧边栏
+
+背景：同事反馈"多人提交同一张图片及相同商品信息"场景。原实现 pending 阶段后写覆盖（先提交者静默丢失）、复核阶段插入重复行（污染正式档案）。
+
+**图片存储重构**：
+- 上传**保留原始文件名**（仅取 basename 防路径注入），存入新目录 **`Images_Temp/`**（临时区）
+- **同图复用**：上传时算内容 MD5，临时区/正式区已有同名同内容文件 → 不落盘直接复用，返回 `reused=true`（前端提示"该图片已存在，直接复用"）；同名不同内容 → 文件名追加内容指纹后缀（`IMG_0001_4951a9.jpg`）
+- **复核完成后归档**：`complete_review` 中检查该图片关联的全部条目均 reviewed 后，文件从 `Images_Temp/` 移至 `uploads/`（正式区）；`photo_path` 只存文件名不变，`/uploads/{name}` 路由依次查正式区→临时区
+- 图片访问路由改为双目录查找（各自带路径穿越防护）
+
+**防重复录入**：
+- `inquiry_temp` 增加复合唯一索引 `uq_temp_barcode_photo(barcode, photo_path)`（部分索引，空行不参与）作为数据库层兜底
+- 应用层以**条码/内部码为判定依据**：同批次同条码已有已录入条目（pending/reviewing/reviewed 任一状态）→ 一律 **409 拒绝**，提示"**该图片已被其他人处理**"（原 A/B 两种场景统一处理）
+- 并发竞争窗口由唯一索引 IntegrityError 兜底，同样返回 409
+
+**进度侧边栏**：录入/复核页面右侧新增固定侧栏，展示本项目活跃批次的 总数量/已处理/待处理：
+- 新接口 `GET /api/stats`：录入=temp 条目总数/已录入/待录入；复核=已录入总数/已复核/待复核
+- 模式切换、提交成功、复核完成后自动刷新
+
+**验证**：TestClient 8 组场景通过（原名保留、同图复用、同名异内容改名、pending/reviewing 重复均 409 且文案一致、统计数字、复核后临时区移除+正式区存在、归档后统计闭环）；重启后连续 8 次探测稳定，复合索引已在正式库创建，进程数正常。
+
+### 四、多项目用户 + 空白主页 + 询价信息页（计划选择前置）
+
+**多项目用户**：`users` 新增 `projects` 列（JSON 数组，`project` 列保留为首项目兼容），存量用户自动迁移；创建用户支持逗号分隔多项目；新增 `PUT /api/admin/users/{id}/projects` + 用户列表"项目"编辑按钮；JWT 携带 projects。
+
+**批次默认命名**：上传批次未填名称时默认 **项目名+日期**（如"成都项目2026-07-17"，原为文件名）。
+
+**空白主页 `home.html`**：登录成功及带有效 token 重新进入时统一跳转主页；仅按权限显示功能入口（询价信息 = entry/review 权限，管理后台 = 管理员）；token 失效自动回登录页。
+
+**询价信息页（原工作台改造）**：
+- 录入/复核集成于同一页面顶部切换（原有能力保留）
+- **计划选择前置**：进入作业前必须从 `GET /api/my/batches`（仅本人有权限项目的进行中计划，管理员全量）中选择**一个**询价计划；选择缓存于 sessionStorage，页头显示当前计划并可"切换计划"
+- 作业全面转为**批次维度**：提交必须携带 batch_id（服务端 `_check_batch_access` 校验存在/进行中/项目权限，403 越权），EAN 校验限所选批次（`barcode_in_batch`），复核计数/认领/侧边栏统计均按批次隔离；temp.project 取批次项目而非用户项目
+- 品类/渠道按所选计划的项目加载（`/api/config?project=`，越权 403）
+
+**验证**：TestClient 7 组场景通过（多项目创建/登录/改项目、默认命名、计划可见性隔离、未选计划 400/越权 403、批次维度统计与认领隔离、配置越权 403）；重启后主页 200、新路由连续 6 次稳定 401、存量用户 projects 迁移完成、进程数正常。
+
+### 五、左侧树形导航（三页统一）
+
+顶部导航选项改为左侧可折叠树形目录：新建共享组件 `static/nav.js`（样式+渲染+折叠逻辑单一来源），主页/询价信息/管理后台三页统一接入。树结构：主页 / 询价信息▾(录入·复核) / 管理后台▾(仪表盘·询价计划·用户管理，仅管理员) / 退出登录。含权限过滤、当前组自动展开、同页内切换（模式/标签不刷新）、跨页深链接（`?mode=review`、`?tab=plan`）、计划前置保护。"切换计划"按钮移至顶栏。
+
+### 六、项目主数据表 project_list + 全库外键化（schema 重构）
+
+**新表 `project_list(project_id PK, project_name UNIQUE)`** 成为全库项目引用唯一来源；所有引用项目名称的字段改为 project_id 外键：
+
+| 表 | 变更 |
+|---|---|
+| users | `project`→`project_id`(FK)，`projects`(名称JSON)→`project_ids`(ID JSON) |
+| inquiry_batches | `project`→`project_id`(FK)；**`inquiry_time`→`inquiry_date`**（字段改名） |
+| inquiry_temp / inquiry_records | `project`→`project_id`(FK) |
+| project_categories / project_channels | `project_name`→`project_id`(FK)，重建表（UNIQUE 约束变更） |
+
+**分层策略**：数据库层全 ID 化；API/Token/前端仍以项目名称交互，db 层负责 name↔id 解析（`core/database` 提供 `resolve_project_id` / `get_or_create_project` / `project_map` 共享辅助）。业务约束随之收紧：创建/修改用户的项目必须已在 project_list 定义（400 拒绝并提示）；删除项目增加用户关联保护（原仅批次保护）。
+
+**迁移** `_migrate_project_ids`（幂等）：收集全库项目名→登记 project_list→逐表转换（ALTER/值重写/重建），已在正式库副本与正式库两次验证。**修复迁移期连接互锁 Bug**：`get_or_create_project` 在外层写事务持锁期间开新连接写入导致 `database is locked`——改为"先独立短事务解析全部 ID，再统一写入"。
+
+**验证**：正式库副本迁移全字段核验通过；新库 TestClient 6 组场景通过（未定义项目拒绝、上传+默认命名+inquiry_date、temp/records 落 project_id 外键值、批次完成迁移、项目登记/删除保护、用户改项目校验）；正式库迁移后真实登录 200、进程数正常。前端仅 `inquiry_date` 字段名两处适配，其余零改动。
+
+## 2026-07-20
+
+### 一、完全重构：后端迁移至 C# (.NET 8 / ASP.NET Core)
+
+Python 版全量备份于 `D:\LLMwork\PriceInquiry_Temp`。重构策略：**API 契约逐字节兼容**——前端 `static/` 三页面 + `nav.js`、数据库 `data/app.db`、图片目录全部原样复用，仅替换后端实现。
+
+**环境**：winget 安装 .NET SDK 8.0.423；NuGet 依赖仅两个——`Microsoft.Data.Sqlite`（数据库）、`ClosedXML`（xlsx 模板生成与解析）。
+
+**代码结构**（`app_cs/`，沿用功能域架构）：
+
+```
+app_cs/
+├── Program.cs            中央调度：路由组装、静态资源(/,/static,/uploads双目录)、/api/config、InitAll
+├── Core/
+│   ├── AppConfig.cs      路径探测（向上找含 static/+data/ 的根目录）、兜底品类/渠道
+│   ├── Db.cs             连接管理(WAL+FK)、幂等 DDL、project_list 主数据辅助、查询封装
+│   └── Auth.cs           手工 HS256 JWT（密钥与 Python 版一致，旧 Token 无缝互通）、鉴权辅助
+├── Users/                登录/用户CRUD(多项目)/权限/仪表盘(跨库 ProductDB 只读)
+├── Plans/                项目管理CRUD/模板下载(ClosedXML,D2项目预填,条码列文本格式)/
+│                         批次上传(csv+xlsx解析,D2项目读取,默认命名=项目名+日期)/列表/内容/改名
+└── Inquiry/              照片上传(原名+MD5去重复用+Images_Temp)/计划选择/录入提交(条码查重409)/
+                          统计/复核认领(随机)/复核完成(图片归档+整批迁移)
+```
+
+**行为保真点**：JWT 密钥/payload 结构一致（旧 token 平滑过渡）、错误文案逐字一致（“该图片已被其他人处理”“项目名称不正确，请重新核对”等）、(barcode,photo_path) 唯一索引兜底、图片双目录查找与归档、批次维度权限校验 `_check_batch_access` 等全部对等移植。历史 schema 迁移不再移植（已由 Python 版在正式库完成），C# 仅保留幂等 DDL + 空库种子。
+
+**验证**：`dotnet build` 0 错误 0 警告；真实服务 E2E 22 项全部通过（真实 admin 登录/按项目配置/xlsx 模板魔数/批次上传与重复ID 400/图片原名与复用/计划列表/提交与 409 查重/白名单 400/统计/认领/复核完成/批次内容/改名/项目配置/用户列表/仪表盘）；测试数据已清理。
+
+**清理**：删除 Python 源码（core/users/plans/inquiry/main.py/config.ini.bak），项目现为纯 C# + 静态资源 + 数据。
+
+**运维变更（重要）**：
+- 启动命令改为：`D:\LLMwork\PriceInquiry\app_cs\bin\Release\net8.0\PriceInquiryApp.exe`（工作目录任意，程序自动向上探测项目根）
+- 重启流程：`wmic process where "name like '%PriceInquiryApp%'" get ProcessId` → `taskkill /PID <pid> /F` → PowerShell Start-Process 后台启动（日志仍重定向至 data/server.log(.err)）
+- 修改 C# 代码后需 `dotnet build -c Release`（在 app_cs/ 下）再重启；无热重载
+- Python 版本随时可回退：从 PriceInquiry_Temp 恢复源码 + `python main.py`（数据库 schema 未变，双向兼容）
+
+### 二、当前系统状态快照（截至 2026-07-20）
+
+**目录结构**：
+```
+PriceInquiry/
+├── app_cs/               C# 后端（源码 + bin/Release 构建产物）
+├── static/               前端：login / home / inquiry / admin + nav.js（共享树形导航）
+├── data/                 app.db(-wal/-shm) + ERD.md + server.log(.err)
+├── uploads/              正式图片存储（复核完成归档）
+├── Images_Temp/          临时图片存储（上传后、复核完成前）
+├── test_images/          4 张测试图（2 张模拟价签 + 2 张空白）
+└── 开发日志.md
+```
+
+**数据库（app.db，8 表 + 1 复合唯一索引）**：`project_list`（项目主数据）← `users` / `inquiry_batches` / `inquiry_temp` / `inquiry_records` / `project_categories` / `project_channels`（均以 project_id 外键引用）+ `inquiry_plan_items`；详见 `data/ERD.md`。
+
+**核心业务流**：管理员建项目配置 → 上传商品明细建批次（项目名+日期命名）→ 用户选定询价计划 → 拖图录入（原名存储/同图复用/一图多商品/条码查重 409）→ 随机认领复核 → 整批复核完成后迁移正式档案 + 图片归档。
+
+**账号**：admin（管理员/总部）、成都_张三、重庆_李四、周小平（19982077280/总部）。
+
+### 待办 / 遗留（C# 化后刷新）
+
+- [ ] 密码仍为明文存储（内网环境暂接受；`Auth.VerifyPassword` 直通实现）
+- [ ] `/uploads` 图片访问无鉴权（`<img>` 无法携带 Authorization 头，内网环境暂接受）
+- [ ] 仪表盘"待复核"计数为 `inquiry_temp` 全表行数，口径与复核页不一致（低优先级，C# 版沿袭）
+- [ ] JWT 密钥硬编码于 `Core/Auth.cs`，生产化前应外置
+- [ ] C# 版本已回退至 Python，C# 源码与构建产物备份于 `app_cs/` 目录。回退原因：非 C# 开发者可读性门槛、编译-重启流程的修改开销在单机场景下未产生足够收益、多 Agent 协作的兼容性风险
+- [x] ~~热重载不可靠~~（Python 特有问题，C# 化后不存在；改为构建后重启的确定性流程）
+- [x] ~~设计文档"重命名照片"按钮命名差异~~（页面已演进为"询价信息"计划选择模式，原文案对照失效）
+
+---
+
+## 2026-07-20 (续) — C# 版回退至 Python
+
+### 决策背景
+C# (.NET 8) 重构于技术层面完全成功（API 逐字节兼容、E2E 22 项通过、旧 Token 无缝互通），但考虑以下三项非技术因素决定回退：
+1. **可维护性**：`Dictionary<string,object?>` / LINQ / record / ASP.NET Core 学习曲线对非 C# 开发者构成实际障碍
+2. **修改效率**：每次业务逻辑调整需 `dotnet build`（~3s）+ 手动重启；Python 版 HTML/JS 即改即生效，`.py` 文件改后重启也仅需一次 taskkill + Start-Process（流程与 C# 相同但无需编译）
+3. **协作友好度**：Python 版本能被几乎所有 Agent/同事读懂，降低知识孤岛风险
+
+### 回滚操作
+- C# 完整备份保留于 `app_cs/` 目录（源码 + bin/Release 构建产物），随时可重新启用
+- 从 `PriceInquiry_Temp` 恢复全部 Python 源码（core/users/plans/inquiry/main.py/config.ini.bak）
+- 终止 C# 进程 → `python main.py` 启动 → 全面探活（7 路由 + 连续 5 次根路径稳定） + 真实 admin 登录验证通过
+- 数据库 schema 未变，前端零改动，用户无感知
+
+### 当前状态
+- 运行中：Python (FastAPI)，端口 8088，PID reloader(40616) + worker(32040)
+- 备份保留：C# 源码（app_cs/）、Python 旧版（PriceInquiry_Temp/）
+- 技术栈恢复为：**Python 3.14 / FastAPI + SQLite (WAL) + 原生 HTML/JS**
+
+---
+
+## 2026-07-20 — v2 功能升级
+
+### 一、users.project_ids / permissions JSON 列 → 关联表
+
+**背景**：`users` 表的 `project_ids`（JSON 数组存项目 ID）和 `permissions`（JSON 数组存权限）使用 `json.loads/dumps` 维护，存在以下问题：
+- JSON 列无法建立外键约束，数据完整性靠应用层保证
+- `project_ids LIKE '%"pid"%'` 查询脆弱且无法走索引
+- 权限查询需要全表 JSON 解析
+
+**变更**：新建两张关联表：
+
+| 新表 | 结构 | 说明 |
+|------|------|------|
+| `user_projects` | `user_id FK → users ON DELETE CASCADE, project_id FK → project_list ON DELETE CASCADE, PK(user_id, project_id)` | 用户-项目多对多 |
+| `user_permissions` | `user_id FK → users ON DELETE CASCADE, permission TEXT, PK(user_id, permission)` | 用户权限一对多 |
+
+**迁移** `_migrate_user_relations()`（幂等）：检测 `users` 表仍存在旧 JSON 列时搬运数据至关联表（INSERT OR IGNORE），旧列保留不删。`delete_user` 依赖 `ON DELETE CASCADE` 自动清理关联记录。
+
+**代码重构**：`users/db.py` 全部读写改用 JOIN `user_projects` + `user_permissions`，废弃 `_ids_to_names(ids_json, ...)` 辅助函数，新增 `_get_user_projects(conn, user_id)` / `_get_user_permissions(conn, user_id)`；对外返回结构不变（`projects` 列表 + `permissions` 列表）。
+
+**影响**：`plans/db.delete_project_config` 的用户引用检查从 `project_ids LIKE '%"pid"%'` 改为 `SELECT COUNT(*) FROM user_projects WHERE project_id = ?`。
+
+### 二、录入人/复核人前端展示
+
+`inquiry_temp` 和 `inquiry_records` 表已有 `created_by` / `reviewed_by` 列（存 user_id），但前端未展示。
+
+**后端变更**：`plans/db.get_batch_items()` 增加 JOIN `users` 返回 `creator_name` / `reviewer_name`。
+
+**前端变更**：
+- `admin.html` 批次内容弹窗：新增"录入人""复核人"两列
+- `inquiry.html` 复核 Step2 面板：增加"录入人: xxx"显示行（`#reviewCreator`）
+
+### 三、复核页面空闲超时自动退出
+
+**场景**：复核员认领条目后离开工位，条目长期锁定在 `reviewing` 状态，其他复核员无法处理。
+
+**后端**：新增 `POST /api/review/unlock?batch_id=`，调用 `inquiry/db.unlock_review_entries(user_id, batch_id)` 将 `reviewing` 条目重置为 `pending`。
+
+**前端**（`inquiry.html`）：
+- 进入复核 Step2 后启动 300s 空闲计时器
+- 监听 `mousemove/keydown/click/scroll/touchstart` 重置计时器
+- 每张图片切换（`showReviewEntry`）时重置计时器
+- 超时触发：`POST /api/review/unlock` → 清 sessionStorage → alert → 跳转主页
+- 页面关闭/刷新时通过 `navigator.sendBeacon` 异步解锁（不阻塞页面跳转）
+- 退出复核模式或切换计划时清除计时器
+
+### 四、操作审计日志
+
+**新表 `audit_log`**：`id AUTO, user_id, action, target_type, target_id, detail(JSON), ip, created_at`，含 4 个索引（user/action/target/time）。
+
+**新模块 `core/audit.py`**：`log_action(user_id, action, target_type, target_id, detail, ip)` 统一日志写入入口，写入失败不中断业务。
+
+**埋点覆盖（15 个操作类型）**：
+
+| 域 | action | 触发端点 |
+|----|--------|---------|
+| 用户 | `user.login` / `user.login_failed` | `/api/login` |
+| 用户 | `user.create` / `user.update_projects` / `user.update_permissions` / `user.delete` | `/api/admin/users` 系列 |
+| 项目 | `project.save` / `project.delete` | `/api/admin/projects` |
+| 批次 | `batch.create` / `batch.rename` | `/api/admin/batches` |
+| 录入 | `inquiry.submit` / `inquiry.submit_duplicate` | `/api/inquiry/submit` |
+| 复核 | `review.claim` / `review.complete` / `review.complete_with_correction` / `review.unlock` | `/api/review` 系列 |
+| 图片 | `photo.upload` | `/api/upload` |
+
+### 五、健康检查端点
+
+`GET /api/health`（无需鉴权）：检查数据库连接 + 返回 `users` 和 `inquiry_temp` 行数。数据库异常时返回 503。
+
+### 六、进程守护脚本
+
+`tools/install_service.ps1`：NSSM Windows Service 封装，支持安装/卸载/重启/状态查询，崩溃自动重启（5s 延迟），日志重定向。
+
+### 七、本地 Git 仓库
+
+初始化本地 Git 仓库（`D:\LLMwork\PriceInquiry\.git`），`.gitignore` 排除数据库文件（`app.db*`）、运行时日志、图片目录（`uploads/`、`Images_Temp/`）、Python 字节码。初始提交：30 个文件，4199 行。
+
+### 八、配置文件变更清单
+
+| 文件 | 变更类型 | 说明 |
+|------|---------|------|
+| `core/database.py` | 修改 | 新增 user_projects/user_permissions/audit_log 三表 DDL + `_migrate_user_relations()` |
+| `core/audit.py` | 新增 | `log_action()` 统一审计日志写入 |
+| `users/db.py` | 重写 | JOIN 关联表替代 JSON 解析 |
+| `users/routes.py` | 修改 | 全部端点增加 audit 埋点 |
+| `plans/db.py` | 修改 | LIKE→JOIN 查询 + `get_batch_items` 返回录入人/复核人 |
+| `plans/routes.py` | 修改 | 全部端点增加 audit 埋点 |
+| `inquiry/db.py` | 修改 | 新增 `unlock_review_entries()` |
+| `inquiry/routes.py` | 修改 | 新增 `/api/review/unlock` + 全部端点 audit 埋点 |
+| `main.py` | 修改 | 新增 `/api/health` 健康检查 |
+| `static/inquiry.html` | 重写 | 录入人显示 + 5min 空闲计时器 + beforeunload sendBeacon |
+| `static/admin.html` | 重写 | 批次弹窗增加录入人/复核人列 |
+| `tools/install_service.ps1` | 新增 | NSSM Windows Service 安装脚本 |
+| `data/ERD.md` | 更新 | v2 表结构文档 |
+| `.gitignore` | 新增 | Git 排除规则 |
+| `开发日志.md` | 更新 | 本文档 |
+| `系统参考手册.md` | 更新 | 同步 v2 全部变更 |
+
+### 九、部署记录
+
+- 终止旧 Python 进程（PID 40616 + 32040）
+- 重启时遇 `database is locked`（WAL 锁未释放），`Get-Process python \| Stop-Process -Force` 批量清理后重新启动成功
+- 启动日志确认 `Application startup complete.`，迁移函数执行正常（`_migrate_users()` 跨库导入时有 ProductDB 用户 FK 冲突，INSERT OR IGNORE 已兜底）
+- 健康检查连续 3 次探测均返回 `200 OK`，`db=connected users=4`
+- 登录接口响应正常（401 为凭证验证通过，端点工作正常）
+- 服务地址：`http://192.168.0.89:8088`
+
+### 十、前端功能域垂直拆分
+
+**背景**：前端 4 个 HTML 文件采用"一个文件 = 一个页面"模式，`inquiry.html`（433 行）内含录入+复核全量逻辑，`admin.html`（390 行）内含仪表盘+计划+用户+项目管理全量逻辑。CSS/JS 全部内联，`api()` / `toast()` / `logout()` 在两处重复定义。与后端已实现的 `core/` / `users/` / `plans/` / `inquiry/` 分域架构不对等。
+
+**拆分原则**：与后端对等——独立功能使用独立文件进行配置与管理；共用功能提取到 public 层。
+
+**变更后结构**：
+
+```
+static/
+├── common.css              ← 公共样式（17条：reset/body/form/table/toast等）
+├── common.js               ← 公共 JS（api封装/toast/logout/token校验）
+├── config.js               ← 全局配置常量（CONFIG对象：超时/权限映射/状态类名）
+├── nav.js                  ← 共享导航（不变）
+├── login.html              ← 登录页（引用 common.css）
+├── home.html               ← 主页（引用 common.css）
+├── inquiry.html            ← meta refresh 重定向 → inquiry/inquiry.html
+├── inquiry/
+│   ├── inquiry.css          ← 录入/复核特有样式
+│   ├── inquiry.html         ← 外壳（计划选择 + 模式切换 + 进度侧栏）
+│   ├── entry.js             ← 录入模块（DOM构建/拖图上传/提交）
+│   └── review.js            ← 复核模块（认领核对/空闲计时器/sendBeacon解锁）
+├── admin.html              ← meta refresh 重定向 → admin/admin.html
+└── admin/
+    ├── admin.css            ← 管理后台特有样式
+    ├── admin.html           ← 外壳（标签页切换）
+    ├── dashboard.js         ← 仪表盘
+    ├── plan.js              ← 询价计划（批次上传/列表/内容弹窗/项目管理弹窗）
+    └── users.js             ← 用户管理 CRUD
+```
+
+**跨模块通信**：显式使用 `window.xxx` 约定——
+- 共享状态：`window.selBatch` / `window.currentMode` / `window.cfg` / `window.myBatches`
+- 共享函数：`window.refreshStats` / `window.makeEntry` / `window.addEntry` / `window.resetEntries` / `window.setFormEnabled`
+- 空闲计时器：`window.startReviewIdleTimer` / `window.resetReviewIdleTimer` / `window.stopReviewIdleTimer`
+- 常量：`window.CONFIG.REVIEW_IDLE_TIMEOUT` / `window.CONFIG.PERM_LABELS` / `window.CONFIG.STATUS_CLASS`
+
+**兼容**：旧路径 `/static/inquiry.html` / `/static/admin.html` 保留为 meta refresh 重定向。
+
+**验证**：全部 11 个新静态路径返回 200 OK；Git 提交 16 files changed, +1000/-836。
+
+### 十一、模板下载修复
+
+**Chrome 拦截**：`fetch()+Blob+createObjectURL` 创建的 `blob:` URL 被 Chrome 标记为不安全下载。
+
+**修复**：
+- `auth.py` 新增 `try_parse_token()` 独立 token 解析函数
+- 模板端点改为手动鉴权（header 优先 → `?token=` query param 兜底），移除 `Depends` 强依赖
+- 前端 `downloadTemplate()` 改为 `window.open(url, '_blank')` 直接触发原生下载
+
+**文件名修复**：
+- HTTP header 仅支持 latin-1，中文需 RFC 5987 编码：`filename*=UTF-8''%E8%AF%A2%E4%BB%B7...`
+- 默认文件名从 `inquiry_template.xlsx` 改为 `询价商品明细模板.xlsx`
+
+**空列修复**：表头从 `条码|商品名称|(空)|项目` 四列改为 `条码|商品名称|项目` 三列，上传解析 `row[3]→row[2]` 同步调整。
+
+**静态资源缓存**：`serve_static` 添加 `Cache-Control: no-cache`，防止浏览器缓存旧版 JS/CSS。
+
+### 十二、users 表废弃列清理
+
+`permissions` 和 `project_ids` 两个 JSON 列数据已完全迁移至 `user_permissions` / `user_projects` 关联表，旧列无代码引用。SQLite 3.50 支持 `DROP COLUMN`，直接删除。迁移函数列存在性检查自然跳过（返回 false），无需代码改动。
+
+### 十三、计划外询价条目
+
+**背景**：录入员拍照时可能遇到不在询价计划中的商品，原流程直接 400 拒绝，但这些照片和信息有保留价值且需要复核防数据污染。
+
+**设计**：不拒绝，标记为计划外（`is_extra=1`），同样进入正常复核流程。
+
+**数据库**：`inquiry_temp` 和 `inquiry_records` 新增 `is_extra INTEGER DEFAULT 0` 列（`_migrate_is_extra` 幂等迁移）。
+
+**录入流程**：
+- 条码在计划内 → `is_extra=0`，正常录入
+- 条码不在计划中 → `is_extra=1`，仍录入并进入复核
+- 前端 toast 提示"仍将进入复核"
+
+**复核流程不变**：计划外条目与计划内条目走相同的认领→核对→确认/修正流程，复核面板显示"（计划外）"标记。
+
+**批次统计**：
+- `list_batches` / `list_active_batches` 新增 `extra_count`
+- `get_batch_stats` 返回 `extra` 计数
+- 管理后台批次表格新增"计划外"列，点击数值可弹窗查看详细列表
+- 批次内容弹窗支持 `?filter=extra` 筛选，计划外条目显示橙色"计划外"标签
+
+**覆盖文件**：`core/database.py`、`inquiry/db.py`、`inquiry/routes.py`、`plans/db.py`、`plans/routes.py`、`admin/admin.html`、`admin/plan.js`、`inquiry/entry.js`、`inquiry/review.js`
+
+### 十四、计划外确认弹窗（可拖拽）
+
+录入提交时，前端先校验条码是否在计划清单中（`GET /api/batch/{id}/plan-barcodes` 预加载）。有计划外条目时弹出确认窗口：
+
+- 列出所有计划外条码（条码/价格/品类/渠道）
+- 提示"请确认信息无误后再提交"
+- **可拖拽移动**：按住标题栏拖动弹窗到任意位置，防止遮挡照片或表单
+- [返回修改] 关闭弹窗 / [确认无误，提交] 执行提交
+
+**后端**：`plans/db.get_plan_barcodes()` + `GET /api/batch/{batch_id}/plan-barcodes`
+
+### 十五、项目管理功能独立 + 用户项目复选框
+
+- 项目管理从 plan.js 弹窗独立为 admin 下单独 tab（`admin/projects.js`），左侧项目列表 + 右侧品类/渠道编辑区
+- 用户项目权限从 `prompt("逗号分隔")` 改为复选框面板（拉取全部项目 → 渲染 checkbox → 预选 → 保存）
+- 侧边栏入口规则写入 CLAUDE.md 和参考手册
+
+### 十六、侧边栏及导航变更
+
+- 项目管理入口从计划页按钮移至侧边栏"管理后台→项目管理"
+- 侧边栏入口规则：独立功能顶级 `leaf()`，归属功能放入对应 `nav-children`折叠组
+- 开发规则文档化：`.claude/CLAUDE.md` 新建项目规则文件
+
+### 十七、录入/复核功能增强
+
+**冲突比价（渠道维度）**：冲突判定从 `(barcode, batch_id)` 升级为 `(barcode, batch_id, channel)`，不同渠道同一商品不视为冲突。新价 > 旧价 → UPDATE 覆盖 + `review_status` 重置为 pending；新价 ≤ 旧价 → `status:"skipped"` 自动跳过，不阻塞用户流程。
+
+**图片导航与缩放**：录入预览框左右箭头切换已上传照片，录入/复核图片均支持鼠标滚轮缩放（0.5x~3x），点击重置。
+
+**计划外自动跳过**：冲突无法覆盖时返回 200 `{status:"skipped"}` 而非 409，前端自动跳过并继续下一张照片。toast 提示"（1条价格低于已有记录，已自动跳过）"。
+
+**预览卡片吸顶**：`#entryPanel > .card:first-child { position: sticky; top: 16px }`，多条目录入时图片始终可见。
+
+### 十八、用户状态服务端持久化
+
+**服务端状态表**：`user_session_state(user_id PK, state_type, state_data JSON, batch_id, updated_at)`，每个用户一条记录，INSERT OR REPLACE 语义。
+
+**保存链路**：`uploadAndShow` 末尾 `await saveEntryStateAsync()` 确保落盘后再继续；`beforeunload` 事件 `fetch + keepalive` 保证页面关闭前发出；`_exitFlag` 防退出/切换计划时覆盖清除。
+
+**恢复链路**：`setMode → restoreEntryState()` 从服务端加载状态，恢复 `uploadedFiles` 列表和 `currentIndex`。File 对象无法持久化，改为全部文件上传完毕后才允许录入。
+
+**清理**：退出按钮 → `POST /api/state/clear` → 解锁复核条目 + 删除记录；复核完成自动清除。
+
+### 十九、全部文件预上传
+
+**变更**：`handleFiles` 不再只上传第一张后让用户开始录入，改为逐一上传全部文件（进度条"上传中 x/N"），全部完成后才 `setFormEnabled(true)` 允许录入。消除"刷新后仅剩一张"的根本原因。
+
+**导航修复**：`updateNavButtons` 移到 `currentIndex` 赋值之后（之前读到旧 index 导致左箭头永远 disabled）；提交后走 `showPhoto` 统一分发（区分 File 对象和字符串文件名），避免 `uploadAndShow` 读字符串的 `.name` 得 `undefined` 卡死。
+
+### 二十、复核页面修复
+
+**品类/渠道下拉框**：复核页 `#reviewCategory`/`#reviewChannel` 从 `<input>` 改为 `<select>`，首次显示时用 `window.cfg` 填充选项。
+
+**录入人 display_name**：`claim_review_entries` SQL 增加 `LEFT JOIN users`，返回 `creator_name`（display_name 优先），复核面板显示真实姓名。
+
+### 二十一、照片价格填报工具集成
+
+**来源**：`D:\PY\汇天浩 根据图片文件名插入销售清单对应位置`，独立脚本根据照片文件名中的条码/价格信息反填至 xlsx 销售清单。
+
+**集成**：拷贝至 `Temp/`，历史版本保留。新增 `fill_prices_v1.7.py`：
+
+- **废弃文件名解析**：不再从文件名中正则提取条码/价格/品类/渠道
+- **数据库直查**：`lookup_filename_in_db(filename)` 根据 `photo_path` 查询 `inquiry_temp` / `inquiry_records`，直接获取 `barcode/price/category/channel`
+- **精确匹配**：数据库存标准渠道名称（如"联华"），与 `config.ini` 的 `[channel_columns]` 直接对应
+- **多条目支持**：同一张照片关联多条记录时全部处理
+
+**目录结构**：
+```
+Temp/
+├── fill_prices_v1.7.py    ← 数据库查询模式（当前）
+├── fill_prices_v1.6.3.py  ← 文件名解析模式（备份）
+├── config.ini             ← 渠道/品类/列映射
+├── 照片/ 清单/ 输出/       ← 数据目录（gitignore）
+└── 历史版本/              ← 旧版脚本备份
+```
+```
