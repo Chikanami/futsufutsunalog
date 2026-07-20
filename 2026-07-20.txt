@@ -335,10 +335,7 @@ PriceInquiry/
 ## 2026-07-20 (续) — C# 版回退至 Python
 
 ### 决策背景
-C# (.NET 8) 重构于技术层面完全成功（API 逐字节兼容、E2E 22 项通过、旧 Token 无缝互通），但考虑以下三项非技术因素决定回退：
-1. **可维护性**：`Dictionary<string,object?>` / LINQ / record / ASP.NET Core 学习曲线对非 C# 开发者构成实际障碍
-2. **修改效率**：每次业务逻辑调整需 `dotnet build`（~3s）+ 手动重启；Python 版 HTML/JS 即改即生效，`.py` 文件改后重启也仅需一次 taskkill + Start-Process（流程与 C# 相同但无需编译）
-3. **协作友好度**：Python 版本能被几乎所有 Agent/同事读懂，降低知识孤岛风险
+C# (.NET 8) 重构于技术层面完全成功（API 逐字节兼容、E2E 22 项通过、旧 Token 无缝互通），但 Agent 输出的 C# 代码审查报告用户看不懂，决定回退至 Python。
 
 ### 回滚操作
 - C# 完整备份保留于 `app_cs/` 目录（源码 + bin/Release 构建产物），随时可重新启用
